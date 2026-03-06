@@ -89,7 +89,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
         q.blanks.forEach(b => {
           const keyVal = keyMap[b.index];
           if (keyVal) {
-            clozeVerif[b.index] = String(userAns?.[b.index] || "").toLowerCase().trim() === keyVal.trim();
+            clozeVerif[b.index] = String(userAnswers[i]?.[b.index] || "").toLowerCase().trim() === keyVal.trim();
             clozeKeys[b.index] = keyVal;
           }
         });
@@ -103,7 +103,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
   };
 
   const handleAskGemini = () => {
-    let prompt = "Chào Gemini, tôi vừa làm một bài tập và có một số câu sai. Nhờ bạn giải thích chi tiết tại sao đáp án của tôi chưa đúng và cung cấp kiến thức liên quan nhé.\n\n";
+    let promptText = "Chào Gemini, tôi vừa làm một bài tập và có một số câu sai. Nhờ bạn giải thích chi tiết tại sao đáp án của tôi chưa đúng và cung cấp kiến thức liên quan nhé.\n\n";
     
     quiz.questions.forEach((q, i) => {
       const verif = verifiedResults?.[i];
@@ -112,29 +112,45 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
       if (q.type === 'multiple-choice') {
         const isCorrect = verif ? verif.isCorrect : (userAns === q.correctAnswer);
         if (!isCorrect) {
-          prompt += `Câu ${i + 1}: ${q.question}\n`;
-          prompt += `- Tôi chọn: ${userAns || "Bỏ trống"}\n`;
-          prompt += `- Đáp án đúng: ${verif?.keyAnswer || q.correctAnswer}\n\n`;
+          promptText += `Câu ${i + 1}: ${q.question}\n`;
+          promptText += `- Tôi chọn: ${userAns || "Bỏ trống"}\n`;
+          promptText += `- Đáp án đúng: ${verif?.keyAnswer || q.correctAnswer}\n\n`;
         }
       } else if (q.type === 'cloze') {
         q.blanks.forEach(b => {
-          const userVal = String(userAns?.[b.index] || "").toLowerCase().trim();
+          const userVal = String(userAnswers[i]?.[b.index] || "").toLowerCase().trim();
           const correctVal = String(b.correctAnswer || "").toLowerCase().trim();
           let isCorrect = userVal === correctVal;
+          
           if (verif && verif.clozeVerif && verif.clozeVerif[b.index] !== undefined) {
             isCorrect = verif.clozeVerif[b.index];
           }
 
           if (!isCorrect) {
-            prompt += `Bài điền từ - Ô trống (${b.index}):\n`;
-            prompt += `- Tôi điền: ${userVal || "Bỏ trống"}\n`;
-            prompt += `- Đáp án đúng: ${verif?.clozeKeys?.[b.index] || b.correctAnswer}\n\n`;
+            // Find context around the blank
+            const placeholder = `[[BLANK_${b.index}]]`;
+            const passage = q.question;
+            const placeholderIdx = passage.indexOf(placeholder);
+            
+            let context = "";
+            if (placeholderIdx !== -1) {
+              // Extract a window of text around the blank for context
+              const start = Math.max(0, placeholderIdx - 80);
+              const end = Math.min(passage.length, placeholderIdx + placeholder.length + 80);
+              const snippet = passage.substring(start, end).replace(placeholder, "_____");
+              context = `"...${snippet}..."`;
+            }
+
+            promptText += `Bài điền từ - Ô trống (${b.index}):\n`;
+            if (context) promptText += `- Ngữ cảnh: ${context}\n`;
+            promptText += `- Tôi điền: ${userVal || "Bỏ trống"}\n`;
+            promptText += `- Đáp án đúng: ${verif?.clozeKeys?.[b.index] || b.correctAnswer}\n\n`;
           }
         });
       }
     });
 
-    navigator.clipboard.writeText(prompt).then(() => {
+    navigator.clipboard.writeText(promptText).then(() => {
       toast({ title: "Đã sao chép Prompt!", description: "Dán vào Gemini để nhận lời giải nhé." });
       window.open("https://gemini.google.com/app", "_blank");
     });

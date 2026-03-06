@@ -5,7 +5,7 @@ import { Quiz } from "./types";
  * Hàm bóc tách văn bản theo quy tắc cố định.
  * Định dạng hỗ trợ: Câu hỏi (a. Lựa chọn 1 / b. Lựa chọn 2 / c. Lựa chọn 3)
  */
-export function parseFixedFormat(text: string): Quiz {
+export function parseFixedFormat(text: string): Omit<Quiz, 'id' | 'createdAt'> {
   // Regex tìm kiếm các đoạn có dạng: Nội dung (a. ... / b. ... / c. ...)
   const itemRegex = /([^()]+?)\s*\(([^)]+)\)/g;
   const questions: any[] = [];
@@ -19,14 +19,16 @@ export function parseFixedFormat(text: string): Quiz {
     const optionsRaw = optionsPart.split(/[\\/|]/);
     const options: string[] = [];
     let correctAnswer = "";
+    let isAnswerGuessed = true;
 
-    optionsRaw.forEach((opt, index) => {
+    optionsRaw.forEach((opt) => {
       let cleanOpt = opt.trim();
       
       // Kiểm tra nếu đáp án được đánh dấu bằng dấu * (ví dụ: *b. Answer)
       const isMarked = cleanOpt.startsWith('*');
       if (isMarked) {
         cleanOpt = cleanOpt.substring(1).trim();
+        isAnswerGuessed = false;
       }
       
       // Loại bỏ tiền tố như a., b., 1., 2. ở đầu mỗi option
@@ -34,7 +36,6 @@ export function parseFixedFormat(text: string): Quiz {
       
       if (cleanOpt) {
         options.push(cleanOpt);
-        // Nếu có đánh dấu * thì chọn làm đáp án đúng, nếu không mặc định là câu đầu tiên (cho đến khi người dùng sửa)
         if (isMarked) {
           correctAnswer = cleanOpt;
         }
@@ -47,7 +48,10 @@ export function parseFixedFormat(text: string): Quiz {
         question: qText,
         options,
         correctAnswer: correctAnswer || options[0],
-        explanation: "Câu hỏi này được hệ thống tự động bóc tách từ định dạng văn bản cố định."
+        isAnswerGuessed,
+        explanation: isAnswerGuessed 
+          ? "Hệ thống không tìm thấy đáp án được đánh dấu (*). Vui lòng tự đối chiếu với tài liệu."
+          : "Câu hỏi này được hệ thống tự động bóc tách từ văn bản."
       });
     }
   }

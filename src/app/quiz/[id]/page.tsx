@@ -59,7 +59,6 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
   const handleApplyAnswerKey = () => {
     if (!answerKeyInput.trim()) return;
 
-    // Regex thông minh để bóc tách bảng đáp án nhập tay
     const regex = /(\d+)\s*[-.)\s:]\s*([a-zA-Z0-9]+)/g;
     const keyMap: Record<number, string> = {};
     let match;
@@ -108,22 +107,30 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
     
     quiz.questions.forEach((q, i) => {
       const verif = verifiedResults?.[i];
-      let isCorrect = false;
-      let correctAns = "";
+      const userAns = userAnswers[i];
 
       if (q.type === 'multiple-choice') {
-        isCorrect = verif ? verif.isCorrect : (userAnswers[i] === q.correctAnswer);
-        correctAns = verif?.keyAnswer || q.correctAnswer;
+        const isCorrect = verif ? verif.isCorrect : (userAns === q.correctAnswer);
+        if (!isCorrect) {
+          prompt += `Câu ${i + 1}: ${q.question}\n`;
+          prompt += `- Tôi chọn: ${userAns || "Bỏ trống"}\n`;
+          prompt += `- Đáp án đúng: ${verif?.keyAnswer || q.correctAnswer}\n\n`;
+        }
       } else if (q.type === 'cloze') {
-        const v = verif ? Object.values(verif.clozeVerif).every(val => val) : false;
-        isCorrect = v;
-        correctAns = verif ? JSON.stringify(verif.clozeKeys) : JSON.stringify(q.blanks.map(b => `(${b.index}): ${b.correctAnswer}`));
-      }
-      
-      if (!isCorrect) {
-        prompt += `Câu ${i + 1}: ${q.type === 'cloze' ? "Bài điền từ vào đoạn văn" : q.question}\n`;
-        prompt += `- Tôi chọn: ${JSON.stringify(userAnswers[i])}\n`;
-        prompt += `- Đáp án đúng: ${correctAns}\n\n`;
+        q.blanks.forEach(b => {
+          const userVal = String(userAns?.[b.index] || "").toLowerCase().trim();
+          const correctVal = String(b.correctAnswer || "").toLowerCase().trim();
+          let isCorrect = userVal === correctVal;
+          if (verif && verif.clozeVerif && verif.clozeVerif[b.index] !== undefined) {
+            isCorrect = verif.clozeVerif[b.index];
+          }
+
+          if (!isCorrect) {
+            prompt += `Bài điền từ - Ô trống (${b.index}):\n`;
+            prompt += `- Tôi điền: ${userVal || "Bỏ trống"}\n`;
+            prompt += `- Đáp án đúng: ${verif?.clozeKeys?.[b.index] || b.correctAnswer}\n\n`;
+          }
+        });
       }
     });
 
@@ -200,28 +207,44 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
         </div>
       );
     }
-
     return null;
   };
 
   if (isFinished) {
+    let totalPoints = 0;
+    let earnedPoints = 0;
+    
     const results = quiz.questions.map((q, i) => {
       const verif = verifiedResults?.[i];
-      let isCorrect = false;
+      const userAns = userAnswers[i];
+      
       if (q.type === 'multiple-choice') {
-        isCorrect = verif ? verif.isCorrect : (userAnswers[i] === q.correctAnswer);
+        const isCorrect = verif ? verif.isCorrect : (userAns === q.correctAnswer);
+        totalPoints += 1;
+        if (isCorrect) earnedPoints += 1;
+        return { 
+          q, 
+          isCorrect, 
+          details: [{ index: i + 1, isCorrect, value: userAns || "Bỏ trống", type: 'mc' }] 
+        };
       } else if (q.type === 'cloze') {
-        // Tự động chấm điểm Cloze dựa trên blanks có sẵn trong quiz object
-        const userCloze = userAnswers[i] || {};
-        const isAllBlanksCorrect = q.blanks.every(b => 
-          String(userCloze[b.index] || "").toLowerCase().trim() === String(b.correctAnswer || "").toLowerCase().trim()
-        );
-        isCorrect = verif ? Object.values(verif.clozeVerif).every(v => v) : isAllBlanksCorrect;
+        const userCloze = userAns || {};
+        const blankResults = q.blanks.map(b => {
+          const uVal = String(userCloze[b.index] || "").toLowerCase().trim();
+          const cVal = String(b.correctAnswer || "").toLowerCase().trim();
+          let isCorrect = uVal === cVal;
+          if (verif && verif.clozeVerif && verif.clozeVerif[b.index] !== undefined) {
+            isCorrect = verif.clozeVerif[b.index];
+          }
+          totalPoints += 1;
+          if (isCorrect) earnedPoints += 1;
+          return { index: b.index, isCorrect, value: uVal || "...", type: 'cloze' };
+        });
+        const isAllCorrect = blankResults.every(br => br.isCorrect);
+        return { q, isCorrect: isAllCorrect, details: blankResults };
       }
-      return { q, isCorrect, verif };
+      return { q, isCorrect: false, details: [] };
     });
-
-    const correctCount = results.filter(r => r.isCorrect).length;
 
     return (
       <div className="min-h-screen bg-background">
@@ -230,7 +253,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
           <Card className="animate-fade-in border-2 border-primary/20 overflow-hidden shadow-2xl">
             <CardHeader className="bg-primary text-white text-center py-12">
               <CardTitle className="text-3xl font-headline mb-4 uppercase tracking-widest">Hoàn thành bài tập</CardTitle>
-              <div className="text-6xl font-extrabold">{correctCount} / {quiz.questions.length}</div>
+              <div className="text-6xl font-extrabold">{earnedPoints} / {totalPoints}</div>
               <p className="mt-4 opacity-80 font-medium">Bạn đã hoàn thành tốt bài tập này!</p>
             </CardHeader>
 
@@ -238,17 +261,14 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
               <div className="space-y-4">
                 <h3 className="text-lg font-bold text-muted-foreground uppercase tracking-wider">Bảng đối chiếu nhanh</h3>
                 <div className="flex flex-wrap gap-2">
-                  {results.map((res, i) => (
+                  {results.flatMap((res, qIdx) => res.details).map((detail, idx) => (
                     <div 
-                      key={i} 
-                      className={`w-12 h-12 rounded-lg flex flex-col items-center justify-center border-2 transition-colors ${res.isCorrect ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}
+                      key={idx} 
+                      className={`w-12 h-12 rounded-lg flex flex-col items-center justify-center border-2 transition-colors ${detail.isCorrect ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}
                     >
-                      <span className="text-[10px] font-bold opacity-60">{i + 1}</span>
-                      <span className="font-bold uppercase">
-                        {res.q.type === 'multiple-choice' ? 
-                          getOptionLetter(res.q.options.indexOf(userAnswers[i] || "")) : 
-                          "..."
-                        }
+                      <span className="text-[10px] font-bold opacity-60">{detail.index}</span>
+                      <span className="font-bold uppercase text-xs truncate w-full text-center px-1">
+                        {detail.type === 'mc' ? (detail.value === "Bỏ trống" ? "?" : getOptionLetter(quiz.questions[results.findIndex(r => r.details.includes(detail))].options.indexOf(detail.value))) : (detail.value === "..." ? "..." : detail.value)}
                       </span>
                     </div>
                   ))}
@@ -271,7 +291,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                 <Table>
                   <TableHeader className="bg-muted/50">
                     <TableRow>
-                      <TableHead className="w-12 text-center">Câu</TableHead>
+                      <TableHead className="w-12 text-center">STT</TableHead>
                       <TableHead>Nội dung câu hỏi</TableHead>
                       <TableHead className="text-center">Kết quả</TableHead>
                     </TableRow>
@@ -282,20 +302,21 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                         <TableCell className="font-bold text-center">{i + 1}</TableCell>
                         <TableCell className="max-w-[400px]">
                           <p className="font-medium line-clamp-2">{res.q.type === 'cloze' ? "Bài tập điền từ vào đoạn văn" : res.q.question}</p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Chọn: {res.q.type === 'cloze' ? 
-                              Object.entries(userAnswers[i] || {}).map(([k, v]) => `(${k}): ${v}`).join(', ') || "Chưa điền" : 
-                              String(userAnswers[i] || "Bỏ trống")
-                            }
-                          </p>
+                          <div className="text-xs text-muted-foreground mt-1 flex flex-wrap gap-x-4">
+                            {res.details.map((d, dIdx) => (
+                              <span key={dIdx} className={d.isCorrect ? 'text-green-600' : 'text-red-600'}>
+                                ({d.index}): {d.value}
+                              </span>
+                            ))}
+                          </div>
                         </TableCell>
                         <TableCell className="text-center">
                           {res.isCorrect ? 
                             <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold">
                               <CheckCircle2 className="h-3.5 w-3.5" /> ĐÚNG
                             </div> : 
-                            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold">
-                              <XCircle className="h-3.5 w-3.5" /> SAI
+                            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-bold">
+                              {res.details.some(d => d.isCorrect) ? "MỘT PHẦN" : "SAI HẾT"}
                             </div>
                           }
                         </TableCell>

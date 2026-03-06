@@ -3,9 +3,9 @@ import { Quiz } from "./types";
 
 /**
  * Hàm bóc tách văn bản theo quy tắc cố định.
- * Định dạng hỗ trợ: Câu hỏi (Phần hỏi thêm: a. Lựa chọn 1 / b. Lựa chọn 2 / c. Lựa chọn 3)
+ * Định dạng hỗ trợ: Câu hỏi chính (Câu hỏi phụ: a. Lựa chọn 1 / b. Lựa chọn 2 / c. Lựa chọn 3)
  */
-export function parseFixedFormat(text: string): Omit<Quiz, 'id' | 'createdAt'> {
+export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz, 'id' | 'createdAt'> {
   // Regex tìm kiếm các đoạn có dạng: Nội dung (Phần phụ: a. ... / b. ... / c. ...)
   const itemRegex = /([^()]+?)\s*\(([^)]+)\)/g;
   const questions: any[] = [];
@@ -16,7 +16,6 @@ export function parseFixedFormat(text: string): Omit<Quiz, 'id' | 'createdAt'> {
     const insideParens = match[2].trim();
     
     // Tìm vị trí bắt đầu của các lựa chọn (ví dụ: a. , 1. , a) , 1) )
-    // Regex này tìm một ký tự chữ/số đứng đầu, theo sau là dấu chấm hoặc dấu đóng ngoặc và một khoảng trắng
     const optionsStartMatch = insideParens.match(/[a-z0-9][.)]\s/i);
     const optionsStartIndex = optionsStartMatch ? optionsStartMatch.index : -1;
     
@@ -24,7 +23,7 @@ export function parseFixedFormat(text: string): Omit<Quiz, 'id' | 'createdAt'> {
     let optionsPart = insideParens;
     
     if (optionsStartIndex !== undefined && optionsStartIndex !== -1) {
-      // Phần văn bản trước "a." chính là câu hỏi phụ
+      // Phần văn bản trước "a." chính là câu hỏi phụ nằm trong ngoặc
       subQuestion = insideParens.substring(0, optionsStartIndex).trim();
       optionsPart = insideParens.substring(optionsStartIndex);
     }
@@ -41,7 +40,7 @@ export function parseFixedFormat(text: string): Omit<Quiz, 'id' | 'createdAt'> {
     optionsRaw.forEach((opt) => {
       let cleanOpt = opt.trim();
       
-      // Kiểm tra nếu đáp án được đánh dấu bằng dấu * (ví dụ: *b. Answer)
+      // Kiểm tra nếu đáp án được đánh dấu bằng dấu *
       const isMarked = cleanOpt.startsWith('*');
       if (isMarked) {
         cleanOpt = cleanOpt.substring(1).trim();
@@ -67,14 +66,14 @@ export function parseFixedFormat(text: string): Omit<Quiz, 'id' | 'createdAt'> {
         correctAnswer: correctAnswer || options[0],
         isAnswerGuessed,
         explanation: isAnswerGuessed 
-          ? "Hệ thống không tìm thấy đáp án được đánh dấu (*). Vui lòng tự đối chiếu với tài liệu."
+          ? "Hệ thống không tìm thấy đáp án được đánh dấu (*). Vui lòng tự đối chiếu."
           : "Câu hỏi này được hệ thống tự động bóc tách từ văn bản."
       });
     }
   }
 
   return {
-    quizTitle: "Bài tập trích xuất thủ công",
+    quizTitle: customTitle || "Bài tập trích xuất thủ công",
     questions
   };
 }

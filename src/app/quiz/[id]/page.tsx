@@ -1,9 +1,8 @@
-
 "use client";
 
 import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, XCircle, ArrowRight, ArrowLeft, Loader2, BrainCircuit, Sparkles, Home } from "lucide-react";
+import { CheckCircle2, XCircle, ArrowRight, ArrowLeft, Loader2, BrainCircuit, Sparkles, Home, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from "@/components/ui/card";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -24,7 +23,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [userAnswers, setUserAnswers] = useState<Record<number, string | boolean>>({});
-  const [submittedAnswers, setSubmittedAnswers] = useState<Record<number, boolean>>(false);
+  const [submittedAnswers, setSubmittedAnswers] = useState<Record<number, boolean>>({});
   const [explanations, setExplanations] = useState<Record<number, string>>({});
   const [loadingExplanation, setLoadingExplanation] = useState<number | null>(null);
   const [isFinished, setIsFinished] = useState(false);
@@ -41,9 +40,39 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
 
   if (!quiz) return null;
 
+  // Handle case where no questions were extracted
+  if (!quiz.questions || quiz.questions.length === 0) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navbar />
+        <main className="container mx-auto px-4 py-12 max-w-2xl text-center">
+          <Card className="p-12 space-y-6 shadow-xl border-2 border-dashed">
+            <div className="bg-muted w-20 h-20 rounded-full flex items-center justify-center mx-auto">
+              <AlertCircle className="h-10 w-10 text-muted-foreground" />
+            </div>
+            <div className="space-y-2">
+              <CardTitle className="text-2xl font-headline font-bold">Không tìm thấy câu hỏi</CardTitle>
+              <CardDescription className="text-lg">
+                Hệ thống không thể trích xuất được câu hỏi nào từ tài liệu "{quiz.documentSource}". 
+                Vui lòng thử tài liệu khác có chứa các bài tập hoặc câu hỏi rõ ràng.
+              </CardDescription>
+            </div>
+            <Button size="lg" onClick={() => router.push('/dashboard')} className="w-full h-14">
+              <Home className="mr-2 h-5 w-5" />
+              Quay lại Dashboard
+            </Button>
+          </Card>
+        </main>
+      </div>
+    );
+  }
+
   const currentQuestion = quiz.questions[currentIdx];
   const totalQuestions = quiz.questions.length;
   const progress = ((currentIdx + 1) / totalQuestions) * 100;
+
+  // Additional safety guard
+  if (!currentQuestion) return null;
 
   const handleOptionSelect = (val: string | boolean) => {
     if (submittedAnswers[currentIdx]) return;
@@ -52,13 +81,12 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
 
   const handleCheckAnswer = async () => {
     if (userAnswers[currentIdx] === undefined) {
-      toast({ title: "Please select an answer", description: "You need to answer before checking." });
+      toast({ title: "Vui lòng chọn đáp án", description: "Bạn cần chọn một câu trả lời trước khi kiểm tra." });
       return;
     }
 
     setSubmittedAnswers(prev => ({ ...prev, [currentIdx]: true }));
     
-    // Fetch AI Explanation
     setLoadingExplanation(currentIdx);
     try {
       const isCorrect = userAnswers[currentIdx] === currentQuestion.correctAnswer;
@@ -66,12 +94,12 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
         question: currentQuestion.question,
         userAnswer: String(userAnswers[currentIdx]),
         isCorrect: isCorrect,
-        documentContent: quiz.quizTitle // Passing title as context for now, ideally pass more
+        documentContent: `Câu hỏi trích từ tài liệu: ${quiz.quizTitle}`
       });
       setExplanations(prev => ({ ...prev, [currentIdx]: explanationResult.explanation }));
     } catch (err) {
       console.error(err);
-      setExplanations(prev => ({ ...prev, [currentIdx]: "Sorry, AI explanation is unavailable at the moment." }));
+      setExplanations(prev => ({ ...prev, [currentIdx]: "Xin lỗi, hiện tại AI không thể đưa ra lời giải thích." }));
     } finally {
       setLoadingExplanation(null);
     }
@@ -119,27 +147,27 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
               <div className="bg-white/20 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4">
                 <CheckCircle2 className="h-10 w-10 text-white" />
               </div>
-              <CardTitle className="text-4xl font-headline">Quiz Completed!</CardTitle>
+              <CardTitle className="text-4xl font-headline">Hoàn thành bài tập!</CardTitle>
               <CardDescription className="text-primary-foreground/80 text-lg">
-                Great job on finishing "{quiz.quizTitle}"
+                Chúc mừng bạn đã hoàn thành "{quiz.quizTitle}"
               </CardDescription>
             </CardHeader>
             <CardContent className="p-12 space-y-12 bg-white">
               <div className="grid grid-cols-2 gap-8 text-center">
                 <div className="space-y-1">
                   <div className="text-5xl font-extrabold text-primary">{percentage}%</div>
-                  <div className="text-muted-foreground uppercase tracking-widest text-xs font-bold">Accuracy</div>
+                  <div className="text-muted-foreground uppercase tracking-widest text-xs font-bold">Độ chính xác</div>
                 </div>
                 <div className="space-y-1">
                   <div className="text-5xl font-extrabold text-foreground">{score}/{totalQuestions}</div>
-                  <div className="text-muted-foreground uppercase tracking-widest text-xs font-bold">Score</div>
+                  <div className="text-muted-foreground uppercase tracking-widest text-xs font-bold">Điểm số</div>
                 </div>
               </div>
 
               <div className="space-y-4">
                 <h3 className="font-headline font-bold text-xl flex items-center gap-2">
                   <Sparkles className="h-5 w-5 text-accent" />
-                  Performance Summary
+                  Tổng kết hiệu suất
                 </h3>
                 <div className="space-y-3">
                   {quiz.questions.map((q, i) => (
@@ -160,10 +188,10 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
             <CardFooter className="p-8 bg-muted/20 border-t flex flex-col sm:flex-row gap-4">
               <Button size="lg" className="w-full sm:flex-1 h-14" onClick={() => router.push('/dashboard')}>
                 <Home className="mr-2 h-5 w-5" />
-                Back to Dashboard
+                Về Dashboard
               </Button>
               <Button size="lg" variant="outline" className="w-full sm:flex-1 h-14" onClick={() => window.location.reload()}>
-                Retake Quiz
+                Làm lại
               </Button>
             </CardFooter>
           </Card>
@@ -186,7 +214,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
         <div className="flex flex-col md:flex-row gap-8 items-start">
           <div className="flex-grow space-y-6 w-full">
             <div className="flex items-center justify-between mb-4">
-              <span className="text-sm font-bold text-primary uppercase tracking-wider">Question {currentIdx + 1} of {totalQuestions}</span>
+              <span className="text-sm font-bold text-primary uppercase tracking-wider">Câu {currentIdx + 1} / {totalQuestions}</span>
               <span className="text-sm text-muted-foreground">{currentQuestion.type.split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ')}</span>
             </div>
 
@@ -246,7 +274,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                         }`}
                         onClick={() => handleOptionSelect(val)}
                       >
-                        {val ? "True" : "False"}
+                        {val ? "Đúng" : "Sai"}
                       </Button>
                     ))}
                   </div>
@@ -255,7 +283,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                 {currentQuestion.type === 'short-answer' && (
                   <div className="space-y-4">
                     <Input 
-                      placeholder="Type your answer here..." 
+                      placeholder="Nhập câu trả lời của bạn..." 
                       className="h-16 text-lg" 
                       value={String(userAnswers[currentIdx] || "")}
                       onChange={(e) => handleOptionSelect(e.target.value)}
@@ -265,7 +293,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                       <div className={`p-4 rounded-lg flex items-start gap-3 ${isCorrect ? 'bg-green-50' : 'bg-red-50'}`}>
                         {isCorrect ? <CheckCircle2 className="text-green-500" /> : <XCircle className="text-red-500" />}
                         <div>
-                          <p className="font-bold">Correct Answer:</p>
+                          <p className="font-bold">Đáp án đúng:</p>
                           <p>{currentQuestion.correctAnswer}</p>
                         </div>
                       </div>
@@ -281,16 +309,16 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                   disabled={currentIdx === 0}
                 >
                   <ArrowLeft className="mr-2 h-4 w-4" />
-                  Previous
+                  Trước đó
                 </Button>
                 
                 {!isChecked ? (
                   <Button size="lg" className="h-12 px-8" onClick={handleCheckAnswer}>
-                    Check Answer
+                    Kiểm tra đáp án
                   </Button>
                 ) : (
                   <Button size="lg" className="h-12 px-8 bg-primary hover:bg-primary/90" onClick={handleNext}>
-                    {currentIdx === totalQuestions - 1 ? "Finish Quiz" : "Next Question"}
+                    {currentIdx === totalQuestions - 1 ? "Hoàn thành" : "Câu tiếp theo"}
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
                 )}
@@ -304,15 +332,15 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                     <BrainCircuit className="h-5 w-5 text-accent-foreground" />
                   </div>
                   <div>
-                    <CardTitle className="text-lg">AI Explanation</CardTitle>
-                    <CardDescription>Based on your response and document context</CardDescription>
+                    <CardTitle className="text-lg">Giải thích từ AI</CardTitle>
+                    <CardDescription>Dựa trên nội dung tài liệu của bạn</CardDescription>
                   </div>
                 </CardHeader>
                 <CardContent className="prose prose-blue max-w-none">
                   {loadingExplanation === currentIdx ? (
                     <div className="flex items-center gap-3 text-muted-foreground">
                       <Loader2 className="h-4 w-4 animate-spin" />
-                      <span>Generating detailed analysis...</span>
+                      <span>Đang tạo phân tích chi tiết...</span>
                     </div>
                   ) : (
                     <div className="text-foreground leading-relaxed">

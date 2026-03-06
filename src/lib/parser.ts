@@ -3,17 +3,34 @@ import { Quiz } from "./types";
 
 /**
  * Hàm bóc tách văn bản theo quy tắc cố định.
- * Định dạng hỗ trợ: Câu hỏi (a. Lựa chọn 1 / b. Lựa chọn 2 / c. Lựa chọn 3)
+ * Định dạng hỗ trợ: Câu hỏi (Phần hỏi thêm: a. Lựa chọn 1 / b. Lựa chọn 2 / c. Lựa chọn 3)
  */
 export function parseFixedFormat(text: string): Omit<Quiz, 'id' | 'createdAt'> {
-  // Regex tìm kiếm các đoạn có dạng: Nội dung (a. ... / b. ... / c. ...)
+  // Regex tìm kiếm các đoạn có dạng: Nội dung (Phần phụ: a. ... / b. ... / c. ...)
   const itemRegex = /([^()]+?)\s*\(([^)]+)\)/g;
   const questions: any[] = [];
   
   let match;
   while ((match = itemRegex.exec(text)) !== null) {
-    const qText = match[1].trim();
-    const optionsPart = match[2];
+    const mainQuestionPart = match[1].trim();
+    const insideParens = match[2].trim();
+    
+    // Tìm vị trí bắt đầu của các lựa chọn (ví dụ: a. , 1. , a) , 1) )
+    // Regex này tìm một ký tự chữ/số đứng đầu, theo sau là dấu chấm hoặc dấu đóng ngoặc và một khoảng trắng
+    const optionsStartMatch = insideParens.match(/[a-z0-9][.)]\s/i);
+    const optionsStartIndex = optionsStartMatch ? optionsStartMatch.index : -1;
+    
+    let subQuestion = "";
+    let optionsPart = insideParens;
+    
+    if (optionsStartIndex !== undefined && optionsStartIndex !== -1) {
+      // Phần văn bản trước "a." chính là câu hỏi phụ
+      subQuestion = insideParens.substring(0, optionsStartIndex).trim();
+      optionsPart = insideParens.substring(optionsStartIndex);
+    }
+    
+    // Hợp nhất câu hỏi chính và câu hỏi phụ (nếu có)
+    const fullQuestion = subQuestion ? `${mainQuestionPart} ${subQuestion}` : mainQuestionPart;
     
     // Tách các lựa chọn bằng dấu gạch chéo / hoặc dấu sổ đứng |
     const optionsRaw = optionsPart.split(/[\\/|]/);
@@ -45,7 +62,7 @@ export function parseFixedFormat(text: string): Omit<Quiz, 'id' | 'createdAt'> {
     if (options.length > 0) {
       questions.push({
         type: 'multiple-choice',
-        question: qText,
+        question: fullQuestion,
         options,
         correctAnswer: correctAnswer || options[0],
         isAnswerGuessed,

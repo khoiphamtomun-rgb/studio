@@ -74,7 +74,6 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
       if (q.type === 'multiple-choice') {
         const keyVal = keyMap[i + 1];
         if (keyVal) {
-          // Nếu key là chữ cái (a, b, c...)
           if (keyVal.length === 1 && /^[a-d]$/.test(keyVal)) {
             const keyIndex = keyVal.charCodeAt(0) - 97;
             const correctText = q.options[keyIndex];
@@ -83,7 +82,6 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
               keyAnswer: correctText || `Option ${keyVal.toUpperCase()}`
             };
           } else {
-            // Nếu key là text
             verification[i] = {
               isCorrect: String(userAnswers[i] || "").toLowerCase().trim() === keyVal,
               keyAnswer: keyVal
@@ -118,8 +116,8 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
 
       if (q.type === 'multiple-choice') {
         const correctVal = verif?.keyAnswer || q.correctAnswer;
-        const isCorrect = verif ? verif.isCorrect : (String(userAns || "").toLowerCase().trim() === String(correctVal || "").toLowerCase().trim());
-        if (!isCorrect) {
+        const isCorrect = verif ? verif.isCorrect : (correctVal && String(userAns || "").toLowerCase().trim() === String(correctVal || "").toLowerCase().trim());
+        if (!isCorrect && correctVal) {
           promptText += `Câu ${i + 1}: ${q.question}\n`;
           promptText += `- Tôi chọn: ${userAns || "Bỏ trống"}\n`;
           promptText += `- Đáp án đúng: ${correctVal}\n\n`;
@@ -128,10 +126,13 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
         q.blanks.forEach(b => {
           const userVal = String(userAnswers[i]?.[b.index] || "").toLowerCase().trim();
           const correctVal = verif?.clozeKeys?.[b.index] || b.correctAnswer;
-          let isCorrect = userVal === String(correctVal || "").toLowerCase().trim();
+          let isCorrect = false;
           
-          if (verif && verif.clozeVerif && verif.clozeVerif[b.index] !== undefined) {
-            isCorrect = verif.clozeVerif[b.index];
+          if (correctVal) {
+            isCorrect = userVal === String(correctVal || "").toLowerCase().trim();
+            if (verif && verif.clozeVerif && verif.clozeVerif[b.index] !== undefined) {
+              isCorrect = verif.clozeVerif[b.index];
+            }
           }
 
           if (!isCorrect && correctVal) {
@@ -242,23 +243,27 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
       
       if (q.type === 'multiple-choice') {
         const correctVal = verif?.keyAnswer || q.correctAnswer;
-        const isCorrect = verif ? verif.isCorrect : (String(userAns || "").toLowerCase().trim() === String(correctVal || "").toLowerCase().trim());
+        const hasKey = !!correctVal;
+        const isCorrect = hasKey && (verif ? verif.isCorrect : (String(userAns || "").toLowerCase().trim() === String(correctVal || "").toLowerCase().trim()));
+        
         totalPoints += 1;
         if (isCorrect) earnedPoints += 1;
+        
         return { 
           q, 
-          isCorrect, 
-          details: [{ index: i + 1, isCorrect, value: userAns || "Bỏ trống", type: 'mc' }] 
+          isCorrect,
+          hasKey,
+          details: [{ index: i + 1, isCorrect, hasKey, value: userAns || "Bỏ trống", type: 'mc' }] 
         };
       } else if (q.type === 'cloze') {
         const userCloze = userAns || {};
         const blankResults = q.blanks.map(b => {
           const uVal = String(userCloze[b.index] || "").toLowerCase().trim();
           const correctVal = verif?.clozeKeys?.[b.index] || b.correctAnswer;
+          const hasKey = !!correctVal;
           
           let isCorrect = false;
-          // Chỉ chấm điểm nếu có đáp án đúng để so sánh
-          if (correctVal) {
+          if (hasKey) {
             isCorrect = uVal === String(correctVal).toLowerCase().trim();
             if (verif && verif.clozeVerif && verif.clozeVerif[b.index] !== undefined) {
               isCorrect = verif.clozeVerif[b.index];
@@ -267,12 +272,12 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
           
           totalPoints += 1;
           if (isCorrect) earnedPoints += 1;
-          return { index: b.index, isCorrect, value: uVal || "...", type: 'cloze' };
+          return { index: b.index, isCorrect, hasKey, value: uVal || "...", type: 'cloze' };
         });
-        const isAllCorrect = blankResults.every(br => br.isCorrect);
-        return { q, isCorrect: isAllCorrect, details: blankResults };
+        const isAllCorrect = blankResults.every(br => br.hasKey && br.isCorrect);
+        return { q, isCorrect: isAllCorrect, hasKey: blankResults.some(br => br.hasKey), details: blankResults };
       }
-      return { q, isCorrect: false, details: [] };
+      return { q, isCorrect: false, hasKey: false, details: [] };
     });
 
     return (
@@ -293,11 +298,12 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                   {results.flatMap((res, qIdx) => res.details).map((detail, idx) => (
                     <div 
                       key={idx} 
-                      className={`w-12 h-12 rounded-lg flex flex-col items-center justify-center border-2 transition-colors ${detail.isCorrect ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}
+                      className={`w-12 h-12 rounded-lg flex flex-col items-center justify-center border-2 transition-colors ${!detail.hasKey ? 'bg-muted border-muted-foreground/30 text-muted-foreground' : (detail.isCorrect ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700')}`}
+                      title={!detail.hasKey ? "Chưa có đáp án đối soát" : ""}
                     >
                       <span className="text-[10px] font-bold opacity-60">{detail.index}</span>
                       <span className="font-bold uppercase text-xs truncate w-full text-center px-1">
-                        {detail.type === 'mc' ? (detail.value === "Bỏ trống" ? "?" : getOptionLetter(quiz.questions[results.findIndex(r => r.details.includes(detail))].options.indexOf(detail.value))) : (detail.value === "..." ? "..." : detail.value)}
+                        {!detail.hasKey ? "?" : (detail.type === 'mc' ? (detail.value === "Bỏ trống" ? "Ø" : getOptionLetter(quiz.questions[results.findIndex(r => r.details.includes(detail))].options.indexOf(detail.value))) : (detail.value === "..." ? "..." : detail.value))}
                       </span>
                     </div>
                   ))}
@@ -333,21 +339,26 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                           <p className="font-medium line-clamp-2">{res.q.type === 'cloze' ? "Bài tập điền từ vào đoạn văn" : res.q.question}</p>
                           <div className="text-xs text-muted-foreground mt-1 flex flex-wrap gap-x-4">
                             {res.details.map((d, dIdx) => (
-                              <span key={dIdx} className={d.isCorrect ? 'text-green-600' : 'text-red-600'}>
-                                ({d.index}): {d.value}
+                              <span key={dIdx} className={!d.hasKey ? 'text-muted-foreground' : (d.isCorrect ? 'text-green-600' : 'text-red-600')}>
+                                ({d.index}): {d.value} {!d.hasKey && "(Chưa có khóa)"}
                               </span>
                             ))}
                           </div>
                         </TableCell>
                         <TableCell className="text-center">
-                          {res.isCorrect ? 
-                            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold">
-                              <CheckCircle2 className="h-3.5 w-3.5" /> ĐÚNG
-                            </div> : 
-                            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-bold">
-                              {res.details.some(d => d.isCorrect) ? "MỘT PHẦN" : "SAI/CHƯA CÓ ĐÁP ÁN"}
+                          {res.hasKey ? (
+                            res.isCorrect ? 
+                              <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold">
+                                <CheckCircle2 className="h-3.5 w-3.5" /> ĐÚNG
+                              </div> : 
+                              <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-bold">
+                                {res.details.some(d => d.isCorrect) ? "MỘT PHẦN" : "SAI"}
+                              </div>
+                          ) : (
+                            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-muted text-muted-foreground rounded-full text-xs font-bold">
+                              CHƯA ĐỐI SOÁT
                             </div>
-                          }
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}

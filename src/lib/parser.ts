@@ -3,144 +3,140 @@ import { Quiz, QuizQuestion } from "./types";
 
 /**
  * Bộ bóc tách văn bản nâng cao:
- * 1. Tách biệt phần "Nội dung bài tập" và "Phần đáp án".
- * 2. Nhận diện tiêu đề bài tập để chia nhỏ các câu hỏi.
- * 3. Khớp chính xác bộ đáp án với từng bài tập dựa trên thứ tự xuất hiện.
+ * 1. Nhận diện tiêu đề (dòng ngắn).
+ * 2. Phân tách Câu hỏi và Bảng đáp án.
+ * 3. Khớp đáp án theo tiêu đề (trùng >= 3 từ) hoặc thứ tự xuất hiện.
  */
 export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz, 'id' | 'createdAt'> {
-  const questions: QuizQuestion[] = [];
   const lines = text.split('\n');
+  const sections: { title: string; content: string[] }[] = [];
+  const answerKeyBlocks: { title: string; keys: Record<number, string> }[] = [];
   
-  // 1. Tìm và trích xuất các bộ đáp án (Answer Keys)
-  // Một bộ đáp án thường bắt đầu bằng số 1 (hoặc 0) và có nhiều câu liên tiếp
-  const answerKeySets: Record<number, string>[] = [];
-  let currentKeyMap: Record<number, string> = {};
-  let lastKeyNum = -1;
+  let currentTitle = customTitle || "";
+  let currentLines: string[] = [];
 
-  // Regex tìm đáp án: 1. word, 1-word, (1) word... 
-  // Hỗ trợ từ vựng dài và nhiều định dạng
-  const answerKeyRegex = /(?:^|[\s,;])(\d+)\s*[-.)\s:]\s*([a-zA-Z0-9/]{1,30})(?![a-zA-Z0-9])/g;
-  
-  // Quét từ dưới lên để tìm khối đáp án thường nằm ở cuối
-  const answerPartMatch = text.match(/(?:Đáp án|Answers|Key):?\s*([\s\S]*)$/i);
-  const textToScanForKeys = answerPartMatch ? answerPartMatch[1] : text;
-
-  let keyMatch;
-  while ((keyMatch = answerKeyRegex.exec(textToScanForKeys)) !== null) {
-    const num = parseInt(keyMatch[1]);
-    const val = keyMatch[2].toLowerCase();
-
-    // Nếu số thứ tự reset về 0 hoặc 1, coi là bắt đầu bộ đáp án mới
-    if (num <= lastKeyNum && (num === 0 || num === 1)) {
-      if (Object.keys(currentKeyMap).length > 0) {
-        answerKeySets.push(currentKeyMap);
-      }
-      currentKeyMap = {};
-    }
-
-    currentKeyMap[num] = val;
-    lastKeyNum = num;
-  }
-  if (Object.keys(currentKeyMap).length > 0) {
-    answerKeySets.push(currentKeyMap);
-  }
-
-  // 2. Chia văn bản thành các Section dựa trên tiêu đề (dòng ngắn)
-  const sections: { title: string; content: string }[] = [];
-  let tempContent: string[] = [];
-  let tempTitle = customTitle || "";
-
+  // Bước 1: Chia văn bản thành các Section dựa trên tiêu đề (dòng ngắn)
   lines.forEach(line => {
     const trimmed = line.trim();
     if (!trimmed) return;
 
-    // Nhận diện dòng tiêu đề: cực ngắn (1-3 từ) và không bắt đầu bằng số thứ tự
-    const wordCount = trimmed.split(/\s+/).length;
-    const isHeader = wordCount > 0 && wordCount <= 3 && !/^\d+[.)\s]/.test(trimmed) && !/\(\d+\)/.test(trimmed);
+    const words = trimmed.split(/\s+/);
+    // Tiêu đề: dòng ngắn (1-5 từ) và không bắt đầu bằng số thứ tự câu hỏi
+    const isHeader = words.length >= 1 && words.length <= 5 && !/^\(?\d+[.)\s]/.test(trimmed);
 
     if (isHeader) {
-      if (tempContent.length > 0) {
-        sections.push({ title: tempTitle || "Bài tập", content: tempContent.join('\n') });
-        tempContent = [];
+      if (currentLines.length > 0) {
+        sections.push({ title: currentTitle || "Bài tập", content: currentLines });
       }
-      tempTitle = trimmed;
+      currentTitle = trimmed;
+      currentLines = [];
     } else {
-      tempContent.push(line);
+      currentLines.push(line);
     }
   });
-  if (tempContent.length > 0) {
-    sections.push({ title: tempTitle || "Bài tập", content: tempContent.join('\n') });
+  if (currentLines.length > 0) {
+    sections.push({ title: currentTitle || "Bài tập", content: currentLines });
   }
 
-  // 3. Xử lý từng Section để bóc tách Cloze hoặc Trắc nghiệm
-  let clozeExerciseIndex = 0;
-  let mcGlobalCounter = 0;
+  // Bước 2: Phân loại Section nào là "Câu hỏi", Section nào là "Bảng đáp án"
+  const questionSections: typeof sections = [];
+  const answerKeyRegex = /(\d+)\s*[-.)\s:]\s*([a-zA-Z0-9/]{1,30})/g;
 
   sections.forEach(section => {
-    const block = section.content;
+    const contentStr = section.content.join(' ');
+    const keyMatches = contentStr.match(answerKeyRegex);
     
-    // Tìm các ô trống Cloze: (1) ..... hoặc (1) [blank]
-    // Lưu ý: Không lấy [A-Z]{2,} làm đáp án trực tiếp để tránh nhận nhầm ví dụ (0) AS
+    // Nếu tiêu đề chứa từ khóa đáp án HOẶC nội dung chủ yếu là các cặp số-chữ
+    const isAnswerBlock = 
+      /đáp án|answer|key|giải/i.test(section.title) || 
+      (keyMatches && keyMatches.length >= 3 && contentStr.length < keyMatches.length * 40);
+
+    if (isAnswerBlock) {
+      const keys: Record<number, string> = {};
+      let match;
+      while ((match = answerKeyRegex.exec(contentStr)) !== null) {
+        keys[parseInt(match[1])] = match[2].toLowerCase().trim();
+      }
+      answerKeyBlocks.push({ title: section.title, keys });
+    } else {
+      questionSections.push(section);
+    }
+  });
+
+  // Bước 3: Xử lý Câu hỏi và Khớp với Bảng đáp án
+  const questions: QuizQuestion[] = [];
+  let clozeCounter = 0;
+  let mcGlobalCounter = 0;
+
+  questionSections.forEach(section => {
+    // Tìm bảng đáp án khớp tiêu đề (Trùng >= 3 từ)
+    const titleWords = section.title.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    let matchedKeySet = answerKeyBlocks.find(ak => {
+      const akWords = ak.title.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+      const intersection = titleWords.filter(w => akWords.includes(w));
+      return intersection.length >= 3 || (titleWords.length > 0 && section.title.toLowerCase() === ak.title.toLowerCase());
+    });
+
+    const blockContent = section.content.join('\n');
     const clozePattern = /\((\d+)\)\s*([._]{2,}|\[.*?\])/g;
-    const allClozeMatches = Array.from(block.matchAll(clozePattern));
+    const allClozeMatches = Array.from(blockContent.matchAll(clozePattern));
 
     if (allClozeMatches.length > 0) {
-      let currentBlanks: { index: number; correctAnswer: string; matchText: string }[] = [];
+      // Xử lý Cloze Test (Có thể có nhiều bài trong 1 section nếu reset số 1)
+      let currentBlanks: { index: number; matchText: string }[] = [];
       let lastNum = -1;
-      let startIndex = 0;
+      let subStartIdx = 0;
 
       for (let i = 0; i <= allClozeMatches.length; i++) {
         const m = allClozeMatches[i];
         const num = m ? parseInt(m[1]) : -1;
 
-        // Nếu số reset hoặc hết matches -> Tạo câu hỏi Cloze
         if (num <= lastNum || i === allClozeMatches.length) {
           if (currentBlanks.length > 0) {
-            const searchStart = startIndex === 0 ? 0 : allClozeMatches[startIndex - 1].index + allClozeMatches[startIndex - 1][0].length;
-            const searchEnd = i === allClozeMatches.length ? block.length : m.index;
+            // Nếu không khớp tiêu đề, lấy theo thứ tự xuất hiện của các cụm đáp án
+            const finalKeySet = matchedKeySet || answerKeyBlocks[clozeCounter];
             
-            let passage = block.substring(searchStart, searchEnd).trim();
-            currentBlanks.forEach(b => {
+            const startCharIdx = subStartIdx === 0 ? 0 : allClozeMatches[subStartIdx - 1].index + allClozeMatches[subStartIdx - 1][0].length;
+            const endCharIdx = i === allClozeMatches.length ? blockContent.length : m.index;
+            
+            let passage = blockContent.substring(startCharIdx, endCharIdx).trim();
+            const blanks = currentBlanks.map(b => {
               passage = passage.replace(b.matchText, `[[BLANK_${b.index}]]`);
+              return { index: b.index, correctAnswer: finalKeySet?.keys[b.index] || "" };
             });
 
             questions.push({
               type: 'cloze',
               question: passage,
-              blanks: currentBlanks.map(b => ({ index: b.index, correctAnswer: b.correctAnswer })),
-              explanation: section.title,
+              blanks,
+              explanation: section.title
             });
-            clozeExerciseIndex++;
+            clozeCounter++;
           }
           currentBlanks = [];
-          startIndex = i;
+          subStartIdx = i;
         }
 
         if (m) {
-          const currentSet = answerKeySets[clozeExerciseIndex] || {};
-          currentBlanks.push({
-            index: num,
-            correctAnswer: currentSet[num] || "",
-            matchText: m[0]
-          });
+          currentBlanks.push({ index: num, matchText: m[0] });
           lastNum = num;
         }
       }
     } else {
-      // Xử lý trắc nghiệm
-      const blockLines = block.split('\n');
+      // Xử lý Trắc nghiệm (Multiple Choice)
+      const lines = section.content;
       const optionPattern = /^[a-dA-D][.)]\s/;
       
       let i = 0;
-      while (i < blockLines.length) {
-        const line = blockLines[i].trim();
+      while (i < lines.length) {
+        const line = lines[i].trim();
         if (line && !optionPattern.test(line)) {
           const options: string[] = [];
           let correctAnswer = "";
           let j = i + 1;
           
-          while (j < blockLines.length && (optionPattern.test(blockLines[j].trim()) || !blockLines[j].trim())) {
-            const optLine = blockLines[j].trim();
+          while (j < lines.length && (optionPattern.test(lines[j].trim()) || !lines[j].trim())) {
+            const optLine = lines[j].trim();
             if (optLine) {
               const isMarked = optLine.includes('*');
               const cleanOpt = optLine.replace('*', '').replace(/^[a-zA-Z0-9][.)]\s*/, '').trim();
@@ -154,20 +150,25 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
 
           if (options.length >= 2) {
             mcGlobalCounter++;
-            if (!correctAnswer) {
-              const keySet = answerKeySets[0] || {}; // Trắc nghiệm thường dùng bộ đáp án đầu tiên hoặc duy nhất
-              const keyVal = keySet[mcGlobalCounter];
-              if (keyVal && keyVal.length === 1) {
-                const idx = keyVal.toLowerCase().charCodeAt(0) - 97;
-                if (options[idx]) correctAnswer = options[idx];
+            const finalKeySet = matchedKeySet || answerKeyBlocks[0];
+            
+            if (!correctAnswer && finalKeySet) {
+              const keyVal = finalKeySet.keys[mcGlobalCounter];
+              if (keyVal) {
+                if (keyVal.length === 1 && /^[a-d]$/i.test(keyVal)) {
+                  const idx = keyVal.toLowerCase().charCodeAt(0) - 97;
+                  if (options[idx]) correctAnswer = options[idx];
+                } else {
+                  correctAnswer = keyVal;
+                }
               }
             }
 
             questions.push({
               type: 'multiple-choice',
               question: line.replace(/^\d+[.)]\s*/, ''),
-              options,
-              correctAnswer: correctAnswer || options[0],
+              options: options.map(o => o.replace('*', '').trim()),
+              correctAnswer,
               explanation: section.title
             });
             i = j - 1;
@@ -179,7 +180,7 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
   });
 
   return {
-    quizTitle: customTitle || (sections[0]?.title) || "Bài tập SmartAssess",
+    quizTitle: customTitle || (questionSections[0]?.title) || "Bài tập SmartAssess",
     questions
   };
 }

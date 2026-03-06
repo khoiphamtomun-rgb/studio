@@ -24,8 +24,15 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 
-// Tiện ích chuẩn hóa chuỗi để so sánh chính xác 100%
-const normalize = (s: any) => String(s || "").toLowerCase().replace(/[\s\u200B-\u200D\uFEFF]/g, '').trim();
+// Hàm chuẩn hóa chuỗi siêu mạnh để so sánh chính xác tuyệt đối
+const normalize = (s: any) => {
+  if (!s) return "";
+  return String(s)
+    .toLowerCase()
+    .replace(/[\s\u200B-\u200D\uFEFF]/g, '') // Xóa mọi loại khoảng trắng và ký tự ẩn
+    .normalize("NFC") // Chuẩn hóa Unicode
+    .trim();
+};
 
 export default function QuizPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -67,7 +74,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
     let currentSet: Record<number, string> = {};
     let lastNum = -1;
     
-    // Regex linh hoạt hơn để bắt mọi loại đáp án (từ dài, dấu /, v.v.)
+    // Regex linh hoạt: 1. word hoặc 1-word hoặc 1: word
     const regex = /(\d+)\s*[-.)\s:]+\s*([^\s,;]+)/g;
     
     lines.forEach(line => {
@@ -76,6 +83,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
         const num = parseInt(match[1]);
         const val = normalize(match[2]);
         
+        // Reset về 1 hoặc số nhỏ hơn -> Sang bài tập (Set) mới
         if (num <= lastNum && Object.keys(currentSet).length > 0) {
           keySets.push(currentSet);
           currentSet = {};
@@ -93,7 +101,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
       const activeKeySet = keySets[currentSetIdx] || {};
 
       if (q.type === 'multiple-choice') {
-        const keyVal = activeKeySet[i + 1];
+        const keyVal = activeKeySet[i + 1]; // Giả định MC đánh số theo STT câu
         if (keyVal) {
           let correctText = keyVal;
           if (keyVal.length === 1 && /^[a-d]$/.test(keyVal)) {
@@ -116,7 +124,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
           }
         });
         verification[i] = { clozeVerif, clozeKeys };
-        currentSetIdx++;
+        currentSetIdx++; // Mỗi bài Cloze coi như một Set đáp án riêng
       }
     });
 

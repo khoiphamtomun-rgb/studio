@@ -4,6 +4,7 @@
 import Link from "next/link";
 import { BrainCircuit, History, PlusCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ModeToggle } from "@/components/mode-toggle";
 
 export function Navbar() {
   return (
@@ -15,7 +16,7 @@ export function Navbar() {
           </div>
           <span className="text-xl font-headline font-bold text-primary">SmartAssess</span>
         </Link>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-4">
           <Link href="/dashboard">
             <Button variant="ghost" className="hidden sm:flex items-center gap-2">
               <PlusCircle className="h-4 w-4" />
@@ -28,6 +29,7 @@ export function Navbar() {
               History
             </Button>
           </Link>
+          <ModeToggle />
           <Button size="sm" className="bg-primary hover:bg-primary/90">Sign In</Button>
         </div>
       </div>

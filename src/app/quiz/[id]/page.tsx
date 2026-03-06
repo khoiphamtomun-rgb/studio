@@ -3,7 +3,7 @@
 
 import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, XCircle, ArrowRight, ArrowLeft, Loader2, BrainCircuit, Home, AlertCircle, Info, ClipboardList, Check, Upload } from "lucide-react";
+import { CheckCircle2, XCircle, ArrowRight, ArrowLeft, Loader2, BrainCircuit, Home, AlertCircle, Info, ClipboardList, Check, Upload, Sparkles, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from "@/components/ui/card";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -96,6 +96,45 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
     toast({ title: "Thành công", description: `Đã đối soát ${Object.keys(verification).length} câu hỏi.` });
   };
 
+  const handleAskGemini = () => {
+    const results = quiz.questions.map((q, i) => ({
+      question: q.question,
+      userAnswer: userAnswers[i],
+      isCorrect: verifiedResults ? verifiedResults[i]?.isCorrect : userAnswers[i] === q.correctAnswer,
+      correctAnswer: verifiedResults ? verifiedResults[i]?.keyAnswer : q.correctAnswer,
+    }));
+
+    const wrongQuestions = results.filter(r => !r.isCorrect);
+
+    if (wrongQuestions.length === 0) {
+      toast({ title: "Chúc mừng!", description: "Bạn đã làm đúng hết, không cần hỏi Gemini đâu!" });
+      return;
+    }
+
+    let prompt = "Chào Gemini, tôi vừa làm một bài tập trắc nghiệm và có một số câu làm sai. Nhờ bạn giải thích chi tiết tại sao đáp án của tôi lại sai và tại sao đáp án đúng lại là đáp án đó nhé.\n\nDưới đây là danh sách các câu tôi làm sai:\n\n";
+    
+    wrongQuestions.forEach((q, i) => {
+      prompt += `Câu ${i + 1}: ${q.question}\n`;
+      prompt += `- Đáp án tôi chọn: ${q.userAnswer}\n`;
+      prompt += `- Đáp án đúng: ${q.correctAnswer}\n\n`;
+    });
+
+    prompt += "Hãy giải thích từng câu một cách dễ hiểu, tập trung vào kiến thức ngữ pháp hoặc từ vựng liên quan. Cảm ơn bạn!";
+
+    // Sao chép vào clipboard
+    navigator.clipboard.writeText(prompt).then(() => {
+      toast({
+        title: "Đã sao chép Prompt!",
+        description: "Bạn có thể dán (Ctrl+V) ngay vào Gemini để hỏi.",
+      });
+      // Mở Gemini trong tab mới
+      window.open("https://gemini.google.com/app", "_blank");
+    }).catch(err => {
+      console.error("Lỗi khi copy:", err);
+      toast({ variant: "destructive", title: "Lỗi", description: "Không thể tự động sao chép prompt." });
+    });
+  };
+
   const currentQuestion = quiz.questions[currentIdx];
   const totalQuestions = quiz.questions.length;
   const progress = ((currentIdx + 1) / totalQuestions) * 100;
@@ -163,6 +202,8 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
       ? Object.values(verifiedResults).filter(v => v.isCorrect).length 
       : results.filter(r => !r.isAnswerGuessed && r.isCorrect).length;
 
+    const wrongCount = totalQuestions - correctCount;
+
     return (
       <div className="min-h-screen bg-background">
         <Navbar />
@@ -178,39 +219,48 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
 
             <CardContent className="p-6 sm:p-10 space-y-10 bg-white">
               <section className="space-y-6">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <h3 className="font-headline font-bold text-xl flex items-center gap-2">
                     <ClipboardList className="h-5 w-5 text-primary" />
                     Bảng đối chiếu nhanh
                   </h3>
                   
-                  <Dialog>
-                    <DialogTrigger asChild>
-                      <Button variant="outline" size="sm" className="gap-2">
-                        <Upload className="h-4 w-4" />
-                        Nhập đáp án (1-a, 2-b...)
+                  <div className="flex flex-wrap gap-2">
+                    <Dialog>
+                      <DialogTrigger asChild>
+                        <Button variant="outline" size="sm" className="gap-2">
+                          <Upload className="h-4 w-4" />
+                          Nhập đáp án
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>Nhập bảng đáp án đối soát</DialogTitle>
+                          <DialogDescription>
+                            Dán chuỗi đáp án của bạn vào đây (Ví dụ: 1-a, 2-b, 3-c...)
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="py-4">
+                          <Textarea 
+                            placeholder="1-a, 2-b, 3-c, 4-a..." 
+                            className="min-h-[150px] font-mono"
+                            value={answerKeyInput}
+                            onChange={(e) => setAnswerKeyInput(e.target.value)}
+                          />
+                        </div>
+                        <DialogFooter>
+                          <Button onClick={handleApplyAnswerKey} className="w-full">Đối soát tự động</Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+
+                    {wrongCount > 0 && (
+                      <Button onClick={handleAskGemini} variant="secondary" size="sm" className="gap-2 bg-purple-50 text-purple-700 hover:bg-purple-100 border-purple-200">
+                        <Sparkles className="h-4 w-4" />
+                        Hỏi Gemini về câu sai
                       </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Nhập bảng đáp án đối soát</DialogTitle>
-                        <DialogDescription>
-                          Dán chuỗi đáp án của bạn vào đây (Ví dụ: 1-a, 2-b, 3-c...)
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="py-4">
-                        <Textarea 
-                          placeholder="1-a, 2-b, 3-c, 4-a..." 
-                          className="min-h-[150px] font-mono"
-                          value={answerKeyInput}
-                          onChange={(e) => setAnswerKeyInput(e.target.value)}
-                        />
-                      </div>
-                      <DialogFooter>
-                        <Button onClick={handleApplyAnswerKey} className="w-full">Đối soát tự động</Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
+                    )}
+                  </div>
                 </div>
                 
                 <div className="bg-muted/30 p-8 rounded-2xl border-2 border-dashed border-muted grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 gap-6">
@@ -247,7 +297,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                       <TableRow>
                         <TableHead className="w-12 text-center">Câu</TableHead>
                         <TableHead>Câu hỏi</TableHead>
-                        <TableHead>Bạn đã chọn</TableHead>
+                        <TableHead>Bạn chọn</TableHead>
                         <TableHead>Kết quả</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -420,3 +470,4 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
     </div>
   );
 }
+

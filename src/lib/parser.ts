@@ -2,49 +2,56 @@
 import { Quiz } from "./types";
 
 /**
- * Hàm bóc tách văn bản tối ưu hóa cho hiệu suất cao.
- * Chia nhỏ văn bản thành các khối để tránh treo trình duyệt.
+ * Bộ bóc tách văn bản hiệu suất cao.
+ * Sử dụng phương pháp duyệt từng dòng thay vì Regex toàn cục để tránh treo máy (ReDoS).
  */
 export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz, 'id' | 'createdAt'> {
   const questions: any[] = [];
   
-  // Bước 1: Chia nhỏ văn bản thành các khối dựa trên khoảng trắng dòng hoặc số thứ tự câu
-  // Điều này giúp tránh việc chạy Regex trên một chuỗi quá dài gây "treo"
+  // Chia nhỏ văn bản thành các khối dựa trên 2 dấu xuống dòng trở lên
   const blocks = text.split(/\n\s*\n/).filter(b => b.trim().length > 0);
 
   for (let block of blocks) {
     block = block.trim();
     
-    // Thử bóc tách theo định dạng: Câu hỏi (a. / b. / c.)
-    // Mẫu: Question text (a. Opt 1 / b. Opt 2)
-    const inlineMatch = block.match(/([^()\n]+?)\s*\(([^)]+)\)/);
+    // 1. Định dạng: Nội dung chính (Câu hỏi phụ: a. Lựa chọn / b. Lựa chọn)
+    const inlineMatch = block.match(/^([\s\S]+?)\s*\(([\s\S]+)\)$/);
     if (inlineMatch) {
       const mainPart = inlineMatch[1].trim();
-      const insideParens = inlineMatch[2].trim();
+      const contentInside = inlineMatch[2].trim();
       
-      const firstOptionMatch = insideParens.match(/[a-d1-4][.)]\s/i);
+      // Tìm vị trí của lựa chọn 'a.' hoặc 'A.' đầu tiên
+      const optionStartMatch = contentInside.match(/\b[a-dA-D][.)]\s/);
+      
       let subQuestion = "";
-      let optionsPart = insideParens;
-      
-      if (firstOptionMatch && firstOptionMatch.index !== undefined) {
-        subQuestion = insideParens.substring(0, firstOptionMatch.index).trim();
-        optionsPart = insideParens.substring(firstOptionMatch.index);
+      let optionsPart = contentInside;
+
+      if (optionStartMatch && optionStartMatch.index !== undefined) {
+        subQuestion = contentInside.substring(0, optionStartMatch.index).trim();
+        optionsPart = contentInside.substring(optionStartMatch.index);
       }
       
       const fullQuestion = subQuestion ? `${mainPart} ${subQuestion}` : mainPart;
-      const optionsRaw = optionsPart.split(/[\\/|]/);
+      
+      // Tách options dựa trên dấu '/' hoặc dòng mới
+      const optionsRaw = optionsPart.split(/[\/\n|]/);
       const options: string[] = [];
       let correctAnswer = "";
       let isAnswerGuessed = true;
 
       optionsRaw.forEach((opt) => {
         let cleanOpt = opt.trim();
+        if (!cleanOpt) return;
+
         const isMarked = cleanOpt.startsWith('*');
         if (isMarked) {
           cleanOpt = cleanOpt.substring(1).trim();
           isAnswerGuessed = false;
         }
-        cleanOpt = cleanOpt.replace(/^[a-z0-9][.)]\s*/i, '').trim();
+
+        // Xóa ký hiệu a. b. c. ở đầu
+        cleanOpt = cleanOpt.replace(/^[a-zA-Z0-9][.)]\s*/, '').trim();
+        
         if (cleanOpt) {
           options.push(cleanOpt);
           if (isMarked) correctAnswer = cleanOpt;
@@ -58,20 +65,19 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
           options,
           correctAnswer: correctAnswer || options[0],
           isAnswerGuessed,
-          explanation: "Được bóc tách từ định dạng trong ngoặc."
+          explanation: "Được bóc tách tự động từ định dạng đóng ngoặc."
         });
-        continue; // Đã xử lý xong khối này
+        continue;
       }
     }
 
-    // Thử bóc tách định dạng Đối thoại hoặc Danh sách dòng:
-    // Mẫu: 1. Question? \n a. Opt \n b. Opt
+    // 2. Định dạng: Danh sách câu hỏi nhiều dòng (Block Format)
     const lines = block.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    if (lines.length >= 3) {
-      const optionStartIndex = lines.findIndex(l => /^[a-d][.)]\s/i.test(l));
+    if (lines.length >= 2) {
+      const optionStartIndex = lines.findIndex(l => /^[a-dA-D][.)]\s/.test(l));
       
       if (optionStartIndex !== -1) {
-        const questionText = lines.slice(0, optionStartIndex).join('\n');
+        const questionText = lines.slice(0, optionStartIndex).join(' ');
         const optionsRaw = lines.slice(optionStartIndex);
         const options: string[] = [];
         let correctAnswer = "";
@@ -84,7 +90,7 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
             cleanLine = cleanLine.replace('*', '').trim();
             isAnswerGuessed = false;
           }
-          const optText = cleanLine.replace(/^[a-z0-9][.)]\s*/i, '').trim();
+          const optText = cleanLine.replace(/^[a-zA-Z0-9][.)]\s*/, '').trim();
           if (optText) {
             options.push(optText);
             if (isMarked) correctAnswer = optText;
@@ -98,7 +104,7 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
             options,
             correctAnswer: correctAnswer || options[0],
             isAnswerGuessed,
-            explanation: "Được bóc tách từ định dạng danh sách dòng."
+            explanation: "Được bóc tách tự động từ định dạng danh sách."
           });
         }
       }
@@ -106,7 +112,7 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
   }
 
   return {
-    quizTitle: customTitle || "Bài tập bóc tách đa định dạng",
+    quizTitle: customTitle || "Bài tập bóc tách tự động",
     questions
   };
 }

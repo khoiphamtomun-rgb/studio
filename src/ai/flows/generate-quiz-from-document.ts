@@ -50,7 +50,22 @@ const generateQuizPrompt = ai.definePrompt({
   name: 'generateQuizPrompt',
   input: {schema: GenerateQuizFromDocumentInputSchema},
   output: {schema: GenerateQuizFromDocumentOutputSchema},
-  prompt: `You are an AI assistant specialized in creating educational quizzes.\nYour task is to analyze the provided document content and generate a comprehensive quiz.\nThe quiz should consist of a mix of multiple-choice, true/false, and short-answer questions.\nFor each question, provide a clear question, the correct answer, and an in-depth explanation.\nFor multiple-choice questions, provide at least 4 options, only one of which is correct.\nFor true/false questions, the correct answer should be a boolean (true or false).\nFor short-answer questions, provide a concise but accurate correct answer.\n\nGenerate the output in JSON format, strictly following the provided schema.\n\nDocument Content:\n{{{documentContent}}}`, 
+  prompt: `You are an AI assistant specialized in creating educational quizzes.
+Your task is to analyze the provided document content and generate a comprehensive quiz.
+
+The quiz should consist of a mix of the following question types:
+- 'multiple-choice': Provide at least 4 options, one correct answer (string), and an explanation.
+- 'true-false': Provide a boolean (true or false) as the correct answer and an explanation.
+- 'short-answer': Provide a concise correct string and an explanation.
+
+IMPORTANT: You MUST use the exact strings 'multiple-choice', 'true-false', or 'short-answer' for the 'type' field in each question object. Do not use 'true/false' or any other variation.
+
+For each question, provide a clear question, the correct answer, and an in-depth explanation.
+
+Generate the output in JSON format, strictly following the provided schema.
+
+Document Content:
+{{{documentContent}}}`, 
 });
 
 // Define the flow

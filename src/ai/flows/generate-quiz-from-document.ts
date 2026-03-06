@@ -1,8 +1,8 @@
 'use server';
 /**
- * @fileOverview A Genkit flow for generating quizzes from document content.
+ * @fileOverview A Genkit flow for extracting quizzes from document content.
  *
- * - generateQuizFromDocument - A function that handles the quiz generation process.
+ * - generateQuizFromDocument - A function that handles the quiz extraction process.
  * - GenerateQuizFromDocumentInput - The input type for the generateQuizFromDocument function.
  * - GenerateQuizFromDocumentOutput - The return type for the generateQuizFromDocument function.
  */
@@ -18,30 +18,30 @@ export type GenerateQuizFromDocumentInput = z.infer<typeof GenerateQuizFromDocum
 
 // Define Output Schema
 const GenerateQuizFromDocumentOutputSchema = z.object({
-  quizTitle: z.string().describe('A suitable title for the quiz based on the document.'),
+  quizTitle: z.string().describe('A suitable title for the quiz extracted from the document.'),
   questions: z.array(
     z.discriminatedUnion('type', [
       z.object({
         type: z.literal('multiple-choice'),
-        question: z.string().describe('The multiple-choice question.'),
-        options: z.array(z.string()).min(4).describe('Array of at least 4 possible answers.'),
-        correctAnswer: z.string().describe('The correct answer from the options.'),
-        explanation: z.string().describe('Explanation for the correct answer.'),
+        question: z.string().describe('The multiple-choice question found in the document.'),
+        options: z.array(z.string()).min(2).describe('Array of possible answers provided for this question.'),
+        correctAnswer: z.string().describe('The correct answer identified in the document.'),
+        explanation: z.string().describe('Explanation provided in the document or a brief context why it is correct.'),
       }),
       z.object({
         type: z.literal('true-false'),
-        question: z.string().describe('The true/false question.'),
+        question: z.string().describe('The true/false question found in the document.'),
         correctAnswer: z.boolean().describe('The correct answer (true or false).'),
-        explanation: z.string().describe('Explanation for the correct answer.'),
+        explanation: z.string().describe('Explanation provided in the document or a brief context.'),
       }),
       z.object({
         type: z.literal('short-answer'),
-        question: z.string().describe('The short-answer question.'),
-        correctAnswer: z.string().describe('The expected correct short answer.'),
-        explanation: z.string().describe('Explanation for the correct answer.'),
+        question: z.string().describe('The short-answer or essay question found in the document.'),
+        correctAnswer: z.string().describe('The expected correct answer or key points provided.'),
+        explanation: z.string().describe('Explanation or context for the answer.'),
       }),
     ])
-  ).describe('An array of generated quiz questions.')
+  ).describe('An array of quiz questions extracted directly from the document.')
 });
 export type GenerateQuizFromDocumentOutput = z.infer<typeof GenerateQuizFromDocumentOutputSchema>;
 
@@ -50,21 +50,19 @@ const generateQuizPrompt = ai.definePrompt({
   name: 'generateQuizPrompt',
   input: {schema: GenerateQuizFromDocumentInputSchema},
   output: {schema: GenerateQuizFromDocumentOutputSchema},
-  prompt: `You are an AI assistant specialized in creating educational quizzes.
-Your task is to analyze the provided document content and generate a comprehensive quiz.
+  prompt: `Bạn là một trợ lý AI chuyên về giáo dục. 
+Nhiệm vụ của bạn là phân tích nội dung tài liệu được cung cấp và TRÍCH XUẤT các câu hỏi trắc nghiệm hoặc bài tập có sẵn trong đó.
 
-The quiz should consist of a mix of the following question types:
-- 'multiple-choice': Provide at least 4 options, one correct answer (string), and an explanation.
-- 'true-false': Provide a boolean (true or false) as the correct answer and an explanation.
-- 'short-answer': Provide a concise correct string and an explanation.
+LƯU Ý QUAN TRỌNG:
+1. KHÔNG tự tạo câu hỏi mới. Chỉ lấy những câu hỏi thực sự xuất hiện trong văn bản.
+2. Xác định đúng loại câu hỏi:
+   - 'multiple-choice': Câu hỏi có các phương án lựa chọn (A, B, C, D...).
+   - 'true-false': Câu hỏi yêu cầu xác định đúng/sai.
+   - 'short-answer': Các câu hỏi tự luận, điền vào chỗ trống hoặc câu hỏi mở.
+3. Nếu tài liệu có đáp án đi kèm cho câu hỏi đó, hãy trích xuất nó vào trường 'correctAnswer'. Nếu không có đáp án rõ ràng, hãy dựa vào nội dung tài liệu để xác định đáp án đúng nhất.
+4. Trường 'type' PHẢI là chính xác một trong các chuỗi: 'multiple-choice', 'true-false', hoặc 'short-answer'. Tuyệt đối không dùng 'true/false'.
 
-IMPORTANT: You MUST use the exact strings 'multiple-choice', 'true-false', or 'short-answer' for the 'type' field in each question object. Do not use 'true/false' or any other variation.
-
-For each question, provide a clear question, the correct answer, and an in-depth explanation.
-
-Generate the output in JSON format, strictly following the provided schema.
-
-Document Content:
+Văn bản tài liệu:
 {{{documentContent}}}`, 
 });
 
@@ -78,7 +76,7 @@ const generateQuizFromDocumentFlow = ai.defineFlow(
   async (input) => {
     const {output} = await generateQuizPrompt(input);
     if (!output) {
-      throw new Error('Failed to generate quiz from document.');
+      throw new Error('Failed to extract quiz from document.');
     }
     return output;
   }

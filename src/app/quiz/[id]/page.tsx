@@ -60,13 +60,12 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
   const handleApplyAnswerKey = () => {
     if (!answerKeyInput.trim()) return;
 
-    // Regex bóc tách định dạng: 1-a, 2-b hoặc 1.a 2.b...
     const regex = /(\d+)\s*[-.]\s*([a-zA-Z])/g;
     const keyMap: Record<number, string> = {};
     let match;
     
     while ((match = regex.exec(answerKeyInput)) !== null) {
-      const num = parseInt(match[1]) - 1; // Chuyển sang index 0
+      const num = parseInt(match[1]) - 1; 
       const letter = match[2].toLowerCase();
       keyMap[num] = letter;
     }
@@ -82,7 +81,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
       const keyLetter = keyMap[i];
       
       if (keyLetter && (q as any).options) {
-        const keyIndex = keyLetter.charCodeAt(0) - 97; // a -> 0, b -> 1
+        const keyIndex = keyLetter.charCodeAt(0) - 97;
         const correctOptionText = (q as any).options[keyIndex];
         
         verification[i] = {
@@ -121,13 +120,11 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
 
     prompt += "Hãy giải thích từng câu một cách dễ hiểu, tập trung vào kiến thức ngữ pháp hoặc từ vựng liên quan. Cảm ơn bạn!";
 
-    // Sao chép vào clipboard
     navigator.clipboard.writeText(prompt).then(() => {
       toast({
         title: "Đã sao chép Prompt!",
         description: "Bạn có thể dán (Ctrl+V) ngay vào Gemini để hỏi.",
       });
-      // Mở Gemini trong tab mới
       window.open("https://gemini.google.com/app", "_blank");
     }).catch(err => {
       console.error("Lỗi khi copy:", err);
@@ -217,7 +214,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
               </div>
             </CardHeader>
 
-            <CardContent className="p-6 sm:p-10 space-y-10 bg-white">
+            <CardContent className="p-6 sm:p-10 space-y-10 bg-white dark:bg-card">
               <section className="space-y-6">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <h3 className="font-headline font-bold text-xl flex items-center gap-2">
@@ -230,7 +227,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                       <DialogTrigger asChild>
                         <Button variant="outline" size="sm" className="gap-2">
                           <Upload className="h-4 w-4" />
-                          Nhập đáp án
+                          Nhập đáp án bổ sung
                         </Button>
                       </DialogTrigger>
                       <DialogContent>
@@ -255,7 +252,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                     </Dialog>
 
                     {wrongCount > 0 && (
-                      <Button onClick={handleAskGemini} variant="secondary" size="sm" className="gap-2 bg-purple-50 text-purple-700 hover:bg-purple-100 border-purple-200">
+                      <Button onClick={handleAskGemini} variant="secondary" size="sm" className="gap-2 bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 hover:bg-purple-100 border-purple-200">
                         <Sparkles className="h-4 w-4" />
                         Hỏi Gemini về câu sai
                       </Button>
@@ -265,7 +262,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                 
                 <div className="bg-muted/30 p-8 rounded-2xl border-2 border-dashed border-muted grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 gap-6">
                   {results.map((res, i) => {
-                    const optionIndex = res.options.indexOf(String(res.userAnswer));
+                    const optionIndex = res.options.indexOf(String(res.userAnswers || userAnswers[i]));
                     const letter = optionIndex !== -1 ? getOptionLetter(optionIndex) : "-";
                     const verification = verifiedResults?.[i];
                     
@@ -274,7 +271,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                         <div className="flex items-baseline gap-1.5">
                           <span className="text-muted-foreground text-xs font-mono">{i + 1}.</span>
                           <span className={`text-xl font-headline font-extrabold ${
-                            verification ? (verification.isCorrect ? 'text-green-600' : 'text-red-600') : 'text-primary'
+                            verification ? (verification.isCorrect ? 'text-green-600' : 'text-red-600') : (res.isAnswerGuessed ? 'text-primary' : (res.isCorrect ? 'text-green-600' : 'text-red-600'))
                           }`}>
                             {letter}
                           </span>
@@ -283,6 +280,13 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                           <span className="text-[10px] font-bold text-green-600">→ {
                             res.options.indexOf(verification.keyAnswer) !== -1 
                             ? getOptionLetter(res.options.indexOf(verification.keyAnswer))
+                            : "?"
+                          }</span>
+                        )}
+                        {!verification && !res.isAnswerGuessed && !res.isCorrect && (
+                          <span className="text-[10px] font-bold text-green-600">→ {
+                            res.options.indexOf(res.correctAnswer) !== -1 
+                            ? getOptionLetter(res.options.indexOf(res.correctAnswer))
                             : "?"
                           }</span>
                         )}
@@ -304,7 +308,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                     <TableBody>
                       {results.map((res, i) => {
                         const verification = verifiedResults?.[i];
-                        const showStatus = verification || !isSelfCheckQuiz;
+                        const showStatus = verification || !res.isAnswerGuessed;
                         const isCorrect = verification ? verification.isCorrect : res.isCorrect;
 
                         return (
@@ -312,9 +316,9 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                             <TableCell className="text-center font-bold">{i + 1}</TableCell>
                             <TableCell className="max-w-[300px] truncate">{res.question}</TableCell>
                             <TableCell className="font-medium text-primary">
-                              {res.options.indexOf(String(res.userAnswer)) !== -1 
-                                ? `${getOptionLetter(res.options.indexOf(String(res.userAnswer)))}. ${res.userAnswer}`
-                                : String(res.userAnswer || "-")}
+                              {res.options.indexOf(String(userAnswers[i])) !== -1 
+                                ? `${getOptionLetter(res.options.indexOf(String(userAnswers[i])))}. ${userAnswers[i]}`
+                                : String(userAnswers[i] || "-")}
                             </TableCell>
                             <TableCell>
                               {showStatus ? (
@@ -327,8 +331,8 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                                     <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-red-100 text-red-700 text-xs font-bold w-fit">
                                       <XCircle className="h-3 w-3" /> Sai
                                     </span>
-                                    {verification && (
-                                      <span className="text-[10px] text-green-700 font-medium">Đúng: {verification.keyAnswer}</span>
+                                    {(verification || !res.isAnswerGuessed) && (
+                                      <span className="text-[10px] text-green-700 font-medium">Đúng: {verification ? verification.keyAnswer : res.correctAnswer}</span>
                                     )}
                                   </div>
                                 )
@@ -397,8 +401,8 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                       let borderColor = "border-transparent bg-muted/30";
                       
                       if (isChecked && !isSelfCheck) {
-                        if (option === currentQuestion.correctAnswer) borderColor = "border-green-500 bg-green-50";
-                        else if (isSelected) borderColor = "border-red-500 bg-red-50";
+                        if (option === currentQuestion.correctAnswer) borderColor = "border-green-500 bg-green-50 dark:bg-green-950/20";
+                        else if (isSelected) borderColor = "border-red-500 bg-red-50 dark:bg-red-950/20";
                         else borderColor = "opacity-50 border-transparent bg-muted/30";
                       } else if (isSelected) {
                         borderColor = "border-primary bg-primary/5";
@@ -470,4 +474,3 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
     </div>
   );
 }
-

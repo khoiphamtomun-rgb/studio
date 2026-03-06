@@ -1,8 +1,9 @@
+
 "use client";
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Upload, FileText, History, Search, Loader2, Sparkles, Plus, Type } from "lucide-react";
+import { Upload, FileText, History, Search, Loader2, Sparkles, Plus, Type, Zap, Code } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -22,6 +23,9 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { parseFixedFormat } from "@/lib/parser";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 
 export default function DashboardPage() {
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
@@ -29,6 +33,7 @@ export default function DashboardPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [manualText, setManualText] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [useAI, setUseAI] = useState(false); // Mặc định dùng Parser để tiết kiệm free tier
   const router = useRouter();
   const { toast } = useToast();
 
@@ -36,10 +41,20 @@ export default function DashboardPage() {
     setQuizzes(storage.getQuizzes());
   }, []);
 
-  const handleProcessText = async (content: string, sourceName: string) => {
+  const handleProcessText = async (content: string, sourceName: string, forceParser = false) => {
     setIsGenerating(true);
     try {
-      const quizOutput = await generateQuizFromDocument({ documentContent: content });
+      let quizOutput: any;
+
+      if (useAI && !forceParser) {
+        quizOutput = await generateQuizFromDocument({ documentContent: content });
+      } else {
+        // Sử dụng Parser bóc tách theo quy tắc (Không tốn Token AI)
+        quizOutput = parseFixedFormat(content);
+        if (quizOutput.questions.length === 0) {
+          throw new Error("Không tìm thấy câu hỏi đúng định dạng. Hãy kiểm tra lại cấu trúc: Câu hỏi (a. / b. / c.)");
+        }
+      }
       
       const newQuiz: Quiz = {
         ...quizOutput,
@@ -53,7 +68,7 @@ export default function DashboardPage() {
       
       toast({
         title: "Thành công!",
-        description: "Bài tập của bạn đã được tạo.",
+        description: useAI ? "AI đã tạo bài tập cho bạn." : "Đã trích xuất câu hỏi thành công (Tiết kiệm Token).",
       });
 
       router.push(`/quiz/${newQuiz.id}`);
@@ -76,7 +91,8 @@ export default function DashboardPage() {
     if (!file) return;
 
     const text = await file.text();
-    handleProcessText(text, file.name);
+    // File upload thường dùng AI để xử lý nội dung phức tạp
+    handleProcessText(text, file.name, false);
   };
 
   const handleManualSubmit = () => {
@@ -103,7 +119,7 @@ export default function DashboardPage() {
       <main className="container mx-auto px-4 py-8 max-w-6xl">
         <header className="mb-12 space-y-4">
           <h1 className="text-4xl font-headline font-bold">Bảng điều khiển</h1>
-          <p className="text-muted-foreground text-lg">Tải lên tài liệu hoặc dán văn bản để tạo bài tập thông minh với AI.</p>
+          <p className="text-muted-foreground text-lg">Chọn cách tạo bài tập: Dùng AI thông minh hoặc Bóc tách quy tắc tiết kiệm.</p>
         </header>
 
         <Tabs defaultValue="overview" className="space-y-8">
@@ -125,8 +141,8 @@ export default function DashboardPage() {
                       )}
                     </div>
                     <div className="space-y-1">
-                      <h3 className="text-xl font-headline font-bold">Tải lên tài liệu</h3>
-                      <p className="text-sm text-muted-foreground">PDF, DOCX, hoặc TXT</p>
+                      <h3 className="text-xl font-headline font-bold">Tải tài liệu (Dùng AI)</h3>
+                      <p className="text-sm text-muted-foreground">Phân tích sâu PDF/DOCX với AI</p>
                     </div>
                     <Button disabled={isGenerating} size="sm" className="w-full relative overflow-hidden">
                       <label className="absolute inset-0 flex items-center justify-center cursor-pointer">
@@ -142,11 +158,11 @@ export default function DashboardPage() {
                     <Card className="border-dashed border-2 hover:border-accent transition-colors group relative cursor-pointer">
                       <CardContent className="p-8 flex flex-col items-center text-center space-y-4">
                         <div className="w-16 h-16 bg-accent/10 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-                          <Type className="h-8 w-8 text-accent-foreground" />
+                          <Code className="h-8 w-8 text-accent-foreground" />
                         </div>
                         <div className="space-y-1">
-                          <h3 className="text-xl font-headline font-bold">Dán văn bản</h3>
-                          <p className="text-sm text-muted-foreground">Nhập trực tiếp nội dung</p>
+                          <h3 className="text-xl font-headline font-bold">Text to Quiz</h3>
+                          <p className="text-sm text-muted-foreground">Bóc tách quy tắc hoặc Dùng AI</p>
                         </div>
                         <Button variant="outline" size="sm" className="w-full">
                           Nhập văn bản
@@ -158,22 +174,35 @@ export default function DashboardPage() {
                     <DialogHeader>
                       <DialogTitle>Tạo bài tập từ văn bản</DialogTitle>
                       <DialogDescription>
-                        Dán nội dung tài liệu hoặc các câu hỏi của bạn vào đây. AI sẽ tự động phân tích và tạo quiz.
+                        Dán nội dung định dạng: <code className="bg-muted px-1">Câu hỏi (a. / b. / c.)</code> để bóc tách nhanh.
                       </DialogDescription>
                     </DialogHeader>
-                    <div className="py-4">
+                    <div className="py-4 space-y-6">
+                      <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg border">
+                        <div className="space-y-0.5">
+                          <Label className="text-base flex items-center gap-2">
+                            <Sparkles className="h-4 w-4 text-primary" />
+                            Sử dụng AI thông minh
+                          </Label>
+                          <p className="text-sm text-muted-foreground">Tắt để dùng bộ bóc tách quy tắc (Tiết kiệm Token)</p>
+                        </div>
+                        <Switch 
+                          checked={useAI} 
+                          onCheckedChange={setUseAI} 
+                        />
+                      </div>
                       <Textarea 
-                        placeholder="Dán nội dung tại đây..." 
-                        className="min-h-[300px] text-base"
+                        placeholder={`Ví dụ: Man: "Is the manager in?" Woman: "He's stepped out for lunch." (a. He is in his office / *b. He is not here right now / c. He is sleeping)`} 
+                        className="min-h-[250px] text-base font-mono"
                         value={manualText}
                         onChange={(e) => setManualText(e.target.value)}
                       />
                     </div>
                     <DialogFooter>
                       <Button variant="ghost" onClick={() => setIsDialogOpen(false)}>Hủy</Button>
-                      <Button onClick={handleManualSubmit} disabled={isGenerating || !manualText.trim()}>
-                        {isGenerating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Bắt đầu tạo
+                      <Button onClick={handleManualSubmit} disabled={isGenerating || !manualText.trim()} className="gap-2">
+                        {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : useAI ? <Sparkles className="h-4 w-4" /> : <Zap className="h-4 w-4" />}
+                        {useAI ? "Tạo với AI" : "Bóc tách ngay"}
                       </Button>
                     </DialogFooter>
                   </DialogContent>
@@ -187,16 +216,16 @@ export default function DashboardPage() {
                 <CardContent className="p-12 space-y-6">
                   <div className="space-y-2">
                     <h3 className="text-2xl font-headline font-bold">Thống kê học tập</h3>
-                    <p className="opacity-90">Xem lại hiệu suất làm bài của bạn qua các bài tập đã tạo.</p>
+                    <p className="opacity-90">Theo dõi tiến độ và điểm số của bạn.</p>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-white/10 p-4 rounded-xl">
                       <div className="text-3xl font-bold">{quizzes.length}</div>
-                      <div className="text-sm opacity-70">Tổng số Quiz</div>
+                      <div className="text-sm opacity-70">Bài tập</div>
                     </div>
                     <div className="bg-white/10 p-4 rounded-xl">
                       <div className="text-3xl font-bold">84%</div>
-                      <div className="text-sm opacity-70">Điểm trung bình</div>
+                      <div className="text-sm opacity-70">Trung bình</div>
                     </div>
                   </div>
                   <Button variant="secondary" className="w-full">Xem chi tiết</Button>
@@ -233,7 +262,7 @@ export default function DashboardPage() {
                     <div className="bg-muted w-16 h-16 rounded-full flex items-center justify-center mx-auto">
                       <History className="text-muted-foreground h-8 w-8" />
                     </div>
-                    <p className="text-muted-foreground">Chưa có bài tập nào. Hãy tải file hoặc dán văn bản để bắt đầu!</p>
+                    <p className="text-muted-foreground">Chưa có bài tập nào. Hãy thử tính năng Text to Quiz!</p>
                   </div>
                 )}
               </div>
@@ -245,7 +274,7 @@ export default function DashboardPage() {
               <div className="relative w-full sm:w-96">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input 
-                  placeholder="Tìm kiếm theo tiêu đề hoặc nguồn..." 
+                  placeholder="Tìm kiếm..." 
                   className="pl-10" 
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -262,12 +291,11 @@ export default function DashboardPage() {
                     </div>
                     <div className="flex-1 space-y-1 text-center sm:text-left">
                       <h3 className="font-headline font-bold text-lg">{quiz.quizTitle}</h3>
-                      <p className="text-sm text-muted-foreground">Nguồn: {quiz.documentSource || 'Không rõ'} • Ngày tạo {new Date(quiz.createdAt).toLocaleDateString()}</p>
+                      <p className="text-sm text-muted-foreground">Nguồn: {quiz.documentSource || 'Không rõ'} • {new Date(quiz.createdAt).toLocaleDateString()}</p>
                     </div>
                     <div className="flex items-center gap-4 shrink-0">
                       <div className="text-right hidden sm:block">
                         <div className="font-bold">{quiz.questions.length} Câu hỏi</div>
-                        <div className="text-xs text-muted-foreground">Loại: Tổng hợp</div>
                       </div>
                       <Button variant="outline">Làm lại</Button>
                     </div>

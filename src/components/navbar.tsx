@@ -30,7 +30,6 @@ export function Navbar() {
             </Button>
           </Link>
           <ModeToggle />
-          <Button size="sm" className="bg-primary hover:bg-primary/90">Sign In</Button>
         </div>
       </div>
     </nav>

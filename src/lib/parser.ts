@@ -40,7 +40,7 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
 
   // Bước 2: Phân loại Section nào là "Câu hỏi", Section nào là "Bảng đáp án"
   const questionSections: typeof sections = [];
-  const answerKeyRegex = /(\d+)\s*[-.)\s:]\s*([a-zA-Z0-9/]{1,30})/g;
+  const answerKeyRegex = /(\d+)\s*[-.)\s:]+\s*([^\s,;]+)/g;
 
   sections.forEach(section => {
     const contentStr = section.content.join(' ');
@@ -49,7 +49,7 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
     // Nếu tiêu đề chứa từ khóa đáp án HOẶC nội dung chủ yếu là các cặp số-chữ
     const isAnswerBlock = 
       /đáp án|answer|key|giải/i.test(section.title) || 
-      (keyMatches && keyMatches.length >= 3 && contentStr.length < keyMatches.length * 40);
+      (keyMatches && keyMatches.length >= 3 && contentStr.length < keyMatches.length * 60);
 
     if (isAnswerBlock) {
       const keys: Record<number, string> = {};
@@ -65,11 +65,10 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
 
   // Bước 3: Xử lý Câu hỏi và Khớp với Bảng đáp án
   const questions: QuizQuestion[] = [];
-  let clozeCounter = 0;
-  let mcGlobalCounter = 0;
+  let exerciseCounter = 0;
 
   questionSections.forEach(section => {
-    // Tìm bảng đáp án khớp tiêu đề (Trùng >= 3 từ)
+    // Tìm bảng đáp án khớp tiêu đề (Fuzzy matching)
     const titleWords = section.title.toLowerCase().split(/\s+/).filter(w => w.length > 2);
     let matchedKeySet = answerKeyBlocks.find(ak => {
       const akWords = ak.title.toLowerCase().split(/\s+/).filter(w => w.length > 2);
@@ -82,7 +81,7 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
     const allClozeMatches = Array.from(blockContent.matchAll(clozePattern));
 
     if (allClozeMatches.length > 0) {
-      // Xử lý Cloze Test (Có thể có nhiều bài trong 1 section nếu reset số 1)
+      // Xử lý Cloze Test (Nhận diện reset số 1 trong cùng 1 section)
       let currentBlanks: { index: number; matchText: string }[] = [];
       let lastNum = -1;
       let subStartIdx = 0;
@@ -93,8 +92,8 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
 
         if (num <= lastNum || i === allClozeMatches.length) {
           if (currentBlanks.length > 0) {
-            // Nếu không khớp tiêu đề, lấy theo thứ tự xuất hiện của các cụm đáp án
-            const finalKeySet = matchedKeySet || answerKeyBlocks[clozeCounter];
+            // Lấy theo tiêu đề khớp hoặc theo thứ tự xuất hiện của exerciseCounter
+            const finalKeySet = matchedKeySet || answerKeyBlocks[exerciseCounter];
             
             const startCharIdx = subStartIdx === 0 ? 0 : allClozeMatches[subStartIdx - 1].index + allClozeMatches[subStartIdx - 1][0].length;
             const endCharIdx = i === allClozeMatches.length ? blockContent.length : m.index;
@@ -111,7 +110,7 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
               blanks,
               explanation: section.title
             });
-            clozeCounter++;
+            exerciseCounter++;
           }
           currentBlanks = [];
           subStartIdx = i;
@@ -128,6 +127,7 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
       const optionPattern = /^[a-dA-D][.)]\s/;
       
       let i = 0;
+      let mcLocalCounter = 0;
       while (i < lines.length) {
         const line = lines[i].trim();
         if (line && !optionPattern.test(line)) {
@@ -149,11 +149,11 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
           }
 
           if (options.length >= 2) {
-            mcGlobalCounter++;
-            const finalKeySet = matchedKeySet || answerKeyBlocks[0];
+            mcLocalCounter++;
+            const finalKeySet = matchedKeySet || answerKeyBlocks[exerciseCounter];
             
             if (!correctAnswer && finalKeySet) {
-              const keyVal = finalKeySet.keys[mcGlobalCounter];
+              const keyVal = finalKeySet.keys[mcLocalCounter];
               if (keyVal) {
                 if (keyVal.length === 1 && /^[a-d]$/i.test(keyVal)) {
                   const idx = keyVal.toLowerCase().charCodeAt(0) - 97;
@@ -176,6 +176,7 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
         }
         i++;
       }
+      if (mcLocalCounter > 0) exerciseCounter++;
     }
   });
 

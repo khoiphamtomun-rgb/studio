@@ -7,39 +7,76 @@ import { Quiz } from "./types";
 export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz, 'id' | 'createdAt'> {
   const questions: any[] = [];
   
-  // 1. Thử bóc tách định dạng khối (Block Format): 
-  // 1. Câu hỏi?
-  // A. Lựa chọn 1
-  // B. Lựa chọn 2
-  // Đáp án: A
-  const blockRegex = /(?:^|\n)\s*(\d+)[.)]\s*(.+?)\n\s*([A-D][.)]\s*.+?)(?=\n\s*\d+[.)]|\n\s*Đáp án:|\n\s*Answer:|$)/gs;
-  let blockMatch;
-  while ((blockMatch = blockRegex.exec(text)) !== null) {
-    const questionText = blockMatch[2].trim();
-    const optionsRaw = blockMatch[3].trim();
+  // 1. Định dạng Đối thoại + Câu hỏi + Đáp án xuống dòng (Dialogue Block)
+  // Ví dụ:
+  // Woman: ...
+  // Man: ...
+  // What does the man mean?
+  // a. Option A
+  // b. Option B
+  const dialogueBlockRegex = /((?:.*?\n)*?)(.+?\?)\n\s*(?:a[.)]\s+)(.+?)(?=\n\s*\d+[.)]|\n\s*\n|$)/gs;
+  let dMatch;
+  while ((dMatch = dialogueBlockRegex.exec(text)) !== null) {
+    const context = dMatch[1].trim();
+    const questionText = dMatch[2].trim();
+    const optionsRaw = 'a. ' + dMatch[3].trim();
     
-    const optionLines = optionsRaw.split(/\n/);
+    const fullQuestion = context ? `${context}\n${questionText}` : questionText;
+    
+    // Bóc tách options từ chuỗi a. b. c.
     const options: string[] = [];
-    optionLines.forEach(line => {
-      const cleanOpt = line.replace(/^[A-D][.)]\s*/i, '').trim();
+    const optLines = optionsRaw.split(/\n\s*/);
+    optLines.forEach(line => {
+      const cleanOpt = line.replace(/^[a-z0-9][.)]\s*/i, '').trim();
       if (cleanOpt) options.push(cleanOpt);
     });
 
-    if (options.length > 0) {
+    if (options.length >= 2) {
       questions.push({
         type: 'multiple-choice',
-        question: questionText,
+        question: fullQuestion,
         options,
-        correctAnswer: options[0], // Mặc định là câu đầu nếu không có mark
+        correctAnswer: options[0],
         isAnswerGuessed: true,
-        explanation: "Được bóc tách từ định dạng danh sách (Block List)."
+        explanation: "Được bóc tách từ định dạng đối thoại (Dialogue Block)."
       });
     }
   }
 
-  // 2. Thử bóc tách định dạng trong ngoặc (Inline Parentheses) - Cải tiến:
-  // Ví dụ: Man: "..." Woman: "..." (The woman is: a. ... / b. ... / c. ...)
   if (questions.length === 0) {
+    // 2. Định dạng khối (Block Format) có số thứ tự: 
+    // 1. Câu hỏi?
+    // A. Lựa chọn 1
+    // B. Lựa chọn 2
+    const blockRegex = /(?:^|\n)\s*(\d+)[.)]\s*(.+?)\n\s*([A-D][.)]\s*.+?)(?=\n\s*\d+[.)]|\n\s*Đáp án:|\n\s*Answer:|$)/gs;
+    let blockMatch;
+    while ((blockMatch = blockRegex.exec(text)) !== null) {
+      const questionText = blockMatch[2].trim();
+      const optionsRaw = blockMatch[3].trim();
+      
+      const optionLines = optionsRaw.split(/\n/);
+      const options: string[] = [];
+      optionLines.forEach(line => {
+        const cleanOpt = line.replace(/^[A-D][.)]\s*/i, '').trim();
+        if (cleanOpt) options.push(cleanOpt);
+      });
+
+      if (options.length > 0) {
+        questions.push({
+          type: 'multiple-choice',
+          question: questionText,
+          options,
+          correctAnswer: options[0],
+          isAnswerGuessed: true,
+          explanation: "Được bóc tách từ định dạng danh sách (Block List)."
+        });
+      }
+    }
+  }
+
+  if (questions.length === 0) {
+    // 3. Định dạng trong ngoặc (Inline Parentheses) - Đã cải tiến:
+    // Ví dụ: Man: "..." Woman: "..." (The woman is: a. ... / b. ... / c. ...)
     const inlineRegex = /([^()\n]+?)\s*\(([^)]+)\)/g;
     let inlineMatch;
     while ((inlineMatch = inlineRegex.exec(text)) !== null) {
@@ -90,8 +127,7 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
     }
   }
 
-  // 3. Định dạng một dòng đơn giản (Simple One-liner):
-  // Question? [A] Opt1 [B] Opt2 [C] Opt3
+  // 4. Định dạng một dòng đơn giản (Simple One-liner):
   if (questions.length === 0) {
     const simpleRegex = /(.+?)\s*\[A\]\s*(.+?)\s*\[B\]\s*(.+?)(?:\s*\[C\]\s*(.+?))?(?:\s*\[D\]\s*(.+?))?$/gm;
     let simpleMatch;

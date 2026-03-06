@@ -87,8 +87,8 @@ export default function LandingPage() {
         </section>
 
         {/* Features Section */}
-        <section className="py-24 bg-white/50">
-          <div className="container mx-auto px-4">
+        <section className="py-24 relative">
+          <div className="container mx-auto px-4 relative z-10">
             <div className="text-center max-w-2xl mx-auto mb-16 space-y-4">
               <h2 className="text-3xl sm:text-4xl font-headline font-bold">Everything you need for smarter learning</h2>
               <p className="text-muted-foreground text-lg">Our platform combines cutting-edge AI with a seamless user experience to make assessment creation effortless.</p>
@@ -99,31 +99,37 @@ export default function LandingPage() {
                 {
                   icon: <FileText className="h-8 w-8 text-primary" />,
                   title: "Document Upload",
-                  description: "Support for PDF, DOCX, and TXT files. Just drag and drop to start."
+                  description: "Support for PDF, DOCX, and TXT files. Just drag and drop to start.",
+                  color: "bg-primary/10"
                 },
                 {
                   icon: <Zap className="h-8 w-8 text-accent" />,
                   title: "Instant Generation",
-                  description: "Our AI analyzes content in real-time to create relevant, high-quality questions."
+                  description: "Our AI analyzes content in real-time to create relevant, high-quality questions.",
+                  color: "bg-accent/10"
                 },
                 {
                   icon: <Sparkles className="h-8 w-8 text-primary" />,
                   title: "Detailed Explanations",
-                  description: "Get in-depth AI reasoning for every answer to reinforce your learning."
+                  description: "Get in-depth AI reasoning for every answer to reinforce your learning.",
+                  color: "bg-primary/10"
                 }
               ].map((feature, i) => (
-                <Card key={i} className="border-none bg-background shadow-sm hover:shadow-md transition-shadow">
+                <Card key={i} className="group border-border bg-card/40 backdrop-blur-md hover:bg-card/80 transition-all duration-300 shadow-xl hover:shadow-2xl hover:-translate-y-1">
                   <CardContent className="pt-8 space-y-4">
-                    <div className="bg-white w-16 h-16 rounded-2xl shadow-inner flex items-center justify-center">
+                    <div className={`w-16 h-16 rounded-2xl ${feature.color} flex items-center justify-center group-hover:scale-110 transition-transform duration-300`}>
                       {feature.icon}
                     </div>
                     <h3 className="text-xl font-headline font-bold">{feature.title}</h3>
-                    <p className="text-muted-foreground">{feature.description}</p>
+                    <p className="text-muted-foreground leading-relaxed">{feature.description}</p>
                   </CardContent>
                 </Card>
               ))}
             </div>
           </div>
+          
+          {/* Subtle background decoration for the section */}
+          <div className="absolute inset-0 bg-muted/20 -z-10" />
         </section>
       </main>
 

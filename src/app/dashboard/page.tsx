@@ -44,6 +44,10 @@ export default function DashboardPage() {
 
   const handleProcessText = async (content: string, sourceName: string, forceParser = false, customTitle?: string) => {
     setIsGenerating(true);
+    
+    // Thêm một khoảng nghỉ nhỏ để trình duyệt kịp render Loader
+    await new Promise(resolve => setTimeout(resolve, 100));
+
     try {
       let quizOutput: any;
 
@@ -69,7 +73,7 @@ export default function DashboardPage() {
       
       toast({
         title: "Thành công!",
-        description: "Bài tập đã được lưu vào kho lưu trữ.",
+        description: `Đã xử lý ${newQuiz.questions.length} câu hỏi.`,
       });
 
       router.push(`/quiz/${newQuiz.id}`);

@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, use } from "react";
@@ -10,7 +11,6 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { storage } from "@/lib/storage";
 import { Quiz, UserAnswer, QuizResult } from "@/lib/types";
-import { explainAnswer } from "@/ai/flows/provide-ai-answer-explanations";
 import { useToast } from "@/hooks/use-toast";
 import { Navbar } from "@/components/navbar";
 
@@ -23,8 +23,6 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
   const [currentIdx, setCurrentIdx] = useState(0);
   const [userAnswers, setUserAnswers] = useState<Record<number, string | boolean>>({});
   const [submittedAnswers, setSubmittedAnswers] = useState<Record<number, boolean>>({});
-  const [explanations, setExplanations] = useState<Record<number, string>>({});
-  const [loadingExplanation, setLoadingExplanation] = useState<number | null>(null);
   const [isFinished, setIsFinished] = useState(false);
 
   useEffect(() => {
@@ -45,7 +43,6 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
     );
   }
 
-  // Handle case where no questions were extracted
   if (!quiz.questions || quiz.questions.length === 0) {
     return (
       <div className="min-h-screen bg-background">
@@ -83,30 +80,13 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
     setUserAnswers(prev => ({ ...prev, [currentIdx]: val }));
   };
 
-  const handleCheckAnswer = async () => {
+  const handleCheckAnswer = () => {
     if (userAnswers[currentIdx] === undefined) {
       toast({ title: "Vui lòng chọn đáp án", description: "Bạn cần chọn một câu trả lời trước khi kiểm tra." });
       return;
     }
-
+    // Không gọi AI ở đây nữa để tiết kiệm quota
     setSubmittedAnswers(prev => ({ ...prev, [currentIdx]: true }));
-    
-    setLoadingExplanation(currentIdx);
-    try {
-      const isCorrect = userAnswers[currentIdx] === currentQuestion.correctAnswer;
-      const explanationResult = await explainAnswer({
-        question: currentQuestion.question,
-        userAnswer: String(userAnswers[currentIdx]),
-        isCorrect: isCorrect,
-        documentContent: `Tài liệu: ${quiz.quizTitle}`
-      });
-      setExplanations(prev => ({ ...prev, [currentIdx]: explanationResult.explanation }));
-    } catch (err) {
-      console.error(err);
-      setExplanations(prev => ({ ...prev, [currentIdx]: "Rất tiếc, AI gặp lỗi khi phân tích câu trả lời này." }));
-    } finally {
-      setLoadingExplanation(null);
-    }
   };
 
   const handleNext = () => {
@@ -122,7 +102,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
       questionIndex: i,
       answer: userAnswers[i],
       isCorrect: userAnswers[i] === q.correctAnswer,
-      explanation: explanations[i]
+      explanation: q.explanation
     }));
 
     const score = finalAnswers.filter(a => a.isCorrect).length;
@@ -338,21 +318,14 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                     <BrainCircuit className="h-5 w-5 text-accent-foreground" />
                   </div>
                   <div>
-                    <CardTitle className="text-lg">Giải thích từ AI</CardTitle>
-                    <CardDescription>Dựa trên nội dung tài liệu của bạn</CardDescription>
+                    <CardTitle className="text-lg">Giải thích chi tiết</CardTitle>
+                    <CardDescription>Giải thích đã được chuẩn bị sẵn cho câu hỏi này</CardDescription>
                   </div>
                 </CardHeader>
                 <CardContent className="prose prose-blue max-w-none">
-                  {loadingExplanation === currentIdx ? (
-                    <div className="flex items-center gap-3 text-muted-foreground">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      <span>Đang tạo phân tích chi tiết...</span>
-                    </div>
-                  ) : (
-                    <div className="text-foreground leading-relaxed">
-                      {explanations[currentIdx] || currentQuestion.explanation}
-                    </div>
-                  )}
+                  <div className="text-foreground leading-relaxed">
+                    {currentQuestion.explanation}
+                  </div>
                 </CardContent>
               </Card>
             )}

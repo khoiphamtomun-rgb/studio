@@ -8,7 +8,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription }
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Progress } from "@/components/ui/progress";
 import { storage } from "@/lib/storage";
 import { Quiz, UserAnswer, QuizResult } from "@/lib/types";
 import { explainAnswer } from "@/ai/flows/provide-ai-answer-explanations";
@@ -31,14 +30,20 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
   useEffect(() => {
     const q = storage.getQuizById(id);
     if (!q) {
-      toast({ variant: "destructive", title: "Error", description: "Quiz not found." });
+      toast({ variant: "destructive", title: "Lỗi", description: "Không tìm thấy bài tập này." });
       router.push("/dashboard");
       return;
     }
     setQuiz(q);
   }, [id, router, toast]);
 
-  if (!quiz) return null;
+  if (!quiz) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   // Handle case where no questions were extracted
   if (!quiz.questions || quiz.questions.length === 0) {
@@ -51,10 +56,10 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
               <AlertCircle className="h-10 w-10 text-muted-foreground" />
             </div>
             <div className="space-y-2">
-              <CardTitle className="text-2xl font-headline font-bold">Không tìm thấy câu hỏi</CardTitle>
+              <CardTitle className="text-2xl font-headline font-bold">Không tìm thấy nội dung</CardTitle>
               <CardDescription className="text-lg">
-                Hệ thống không thể trích xuất được câu hỏi nào từ tài liệu "{quiz.documentSource}". 
-                Vui lòng thử tài liệu khác có chứa các bài tập hoặc câu hỏi rõ ràng.
+                Hệ thống không thể trích xuất hoặc tạo câu hỏi từ tài liệu này. 
+                Gợi ý: Hãy thử tải lên file .txt hoặc copy-paste nội dung văn bản.
               </CardDescription>
             </div>
             <Button size="lg" onClick={() => router.push('/dashboard')} className="w-full h-14">
@@ -71,7 +76,6 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
   const totalQuestions = quiz.questions.length;
   const progress = ((currentIdx + 1) / totalQuestions) * 100;
 
-  // Additional safety guard
   if (!currentQuestion) return null;
 
   const handleOptionSelect = (val: string | boolean) => {
@@ -94,12 +98,12 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
         question: currentQuestion.question,
         userAnswer: String(userAnswers[currentIdx]),
         isCorrect: isCorrect,
-        documentContent: `Câu hỏi trích từ tài liệu: ${quiz.quizTitle}`
+        documentContent: `Tài liệu: ${quiz.quizTitle}`
       });
       setExplanations(prev => ({ ...prev, [currentIdx]: explanationResult.explanation }));
     } catch (err) {
       console.error(err);
-      setExplanations(prev => ({ ...prev, [currentIdx]: "Xin lỗi, hiện tại AI không thể đưa ra lời giải thích." }));
+      setExplanations(prev => ({ ...prev, [currentIdx]: "Rất tiếc, AI gặp lỗi khi phân tích câu trả lời này." }));
     } finally {
       setLoadingExplanation(null);
     }
@@ -149,7 +153,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
               </div>
               <CardTitle className="text-4xl font-headline">Hoàn thành bài tập!</CardTitle>
               <CardDescription className="text-primary-foreground/80 text-lg">
-                Chúc mừng bạn đã hoàn thành "{quiz.quizTitle}"
+                Kết quả cho bài "{quiz.quizTitle}"
               </CardDescription>
             </CardHeader>
             <CardContent className="p-12 space-y-12 bg-white">
@@ -167,7 +171,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
               <div className="space-y-4">
                 <h3 className="font-headline font-bold text-xl flex items-center gap-2">
                   <Sparkles className="h-5 w-5 text-accent" />
-                  Tổng kết hiệu suất
+                  Tổng kết chi tiết
                 </h3>
                 <div className="space-y-3">
                   {quiz.questions.map((q, i) => (
@@ -215,7 +219,9 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
           <div className="flex-grow space-y-6 w-full">
             <div className="flex items-center justify-between mb-4">
               <span className="text-sm font-bold text-primary uppercase tracking-wider">Câu {currentIdx + 1} / {totalQuestions}</span>
-              <span className="text-sm text-muted-foreground">{currentQuestion.type.split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ')}</span>
+              <span className="text-sm text-muted-foreground">
+                {currentQuestion.type === 'multiple-choice' ? 'Trắc nghiệm' : currentQuestion.type === 'true-false' ? 'Đúng/Sai' : 'Tự luận ngắn'}
+              </span>
             </div>
 
             <Card className="shadow-xl border-none">
@@ -224,7 +230,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
 
                 {currentQuestion.type === 'multiple-choice' && (
                   <RadioGroup 
-                    value={String(userAnswers[currentIdx])} 
+                    value={String(userAnswers[currentIdx] || "")} 
                     onValueChange={handleOptionSelect}
                     disabled={isChecked}
                     className="grid gap-4"
@@ -268,8 +274,8 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                         className={`h-24 text-xl font-headline ${
                           isChecked 
                             ? val === currentQuestion.correctAnswer 
-                              ? 'bg-green-500 text-white border-none' 
-                              : userAnswers[currentIdx] === val ? 'bg-red-500 text-white border-none' : 'opacity-50'
+                              ? 'bg-green-500 text-white border-none hover:bg-green-500' 
+                              : userAnswers[currentIdx] === val ? 'bg-red-500 text-white border-none hover:bg-red-500' : 'opacity-50'
                             : ''
                         }`}
                         onClick={() => handleOptionSelect(val)}
@@ -313,7 +319,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                 </Button>
                 
                 {!isChecked ? (
-                  <Button size="lg" className="h-12 px-8" onClick={handleCheckAnswer}>
+                  <Button size="lg" className="h-12 px-8" onClick={handleCheckAnswer} disabled={userAnswers[currentIdx] === undefined}>
                     Kiểm tra đáp án
                   </Button>
                 ) : (

@@ -1,8 +1,8 @@
 'use server';
 /**
- * @fileOverview A Genkit flow for extracting quizzes from document content.
+ * @fileOverview A Genkit flow for extracting or generating quizzes from document content.
  *
- * - generateQuizFromDocument - A function that handles the quiz extraction process.
+ * - generateQuizFromDocument - A function that handles the quiz extraction/generation process.
  * - GenerateQuizFromDocumentInput - The input type for the generateQuizFromDocument function.
  * - GenerateQuizFromDocumentOutput - The return type for the generateQuizFromDocument function.
  */
@@ -16,32 +16,39 @@ const GenerateQuizFromDocumentInputSchema = z.object({
 });
 export type GenerateQuizFromDocumentInput = z.infer<typeof GenerateQuizFromDocumentInputSchema>;
 
+// Define Question Schemas
+const MultipleChoiceSchema = z.object({
+  type: z.literal('multiple-choice'),
+  question: z.string().describe('The question text.'),
+  options: z.array(z.string()).min(2).describe('List of options.'),
+  correctAnswer: z.string().describe('The correct option.'),
+  explanation: z.string().describe('Why this answer is correct.'),
+});
+
+const TrueFalseSchema = z.object({
+  type: z.literal('true-false'),
+  question: z.string().describe('The true/false question text.'),
+  correctAnswer: z.boolean().describe('The correct answer (true or false).'),
+  explanation: z.string().describe('Context for the answer.'),
+});
+
+const ShortAnswerSchema = z.object({
+  type: z.literal('short-answer'),
+  question: z.string().describe('The short-answer question text.'),
+  correctAnswer: z.string().describe('The expected correct answer.'),
+  explanation: z.string().describe('Key points or context.'),
+});
+
 // Define Output Schema
 const GenerateQuizFromDocumentOutputSchema = z.object({
-  quizTitle: z.string().describe('A suitable title for the quiz extracted from the document.'),
+  quizTitle: z.string().describe('A suitable title for the quiz.'),
   questions: z.array(
     z.discriminatedUnion('type', [
-      z.object({
-        type: z.literal('multiple-choice'),
-        question: z.string().describe('The multiple-choice question found in the document.'),
-        options: z.array(z.string()).min(2).describe('Array of possible answers provided for this question.'),
-        correctAnswer: z.string().describe('The correct answer identified in the document.'),
-        explanation: z.string().describe('Explanation provided in the document or a brief context why it is correct.'),
-      }),
-      z.object({
-        type: z.literal('true-false'),
-        question: z.string().describe('The true/false question found in the document.'),
-        correctAnswer: z.boolean().describe('The correct answer (true or false).'),
-        explanation: z.string().describe('Explanation provided in the document or a brief context.'),
-      }),
-      z.object({
-        type: z.literal('short-answer'),
-        question: z.string().describe('The short-answer or essay question found in the document.'),
-        correctAnswer: z.string().describe('The expected correct answer or key points provided.'),
-        explanation: z.string().describe('Explanation or context for the answer.'),
-      }),
+      MultipleChoiceSchema,
+      TrueFalseSchema,
+      ShortAnswerSchema,
     ])
-  ).describe('An array of quiz questions extracted directly from the document.')
+  ).describe('An array of quiz questions.')
 });
 export type GenerateQuizFromDocumentOutput = z.infer<typeof GenerateQuizFromDocumentOutputSchema>;
 
@@ -50,19 +57,18 @@ const generateQuizPrompt = ai.definePrompt({
   name: 'generateQuizPrompt',
   input: {schema: GenerateQuizFromDocumentInputSchema},
   output: {schema: GenerateQuizFromDocumentOutputSchema},
-  prompt: `Bạn là một trợ lý AI chuyên về giáo dục. 
-Nhiệm vụ của bạn là phân tích nội dung tài liệu được cung cấp và TRÍCH XUẤT các câu hỏi trắc nghiệm hoặc bài tập có sẵn trong đó.
+  prompt: `Bạn là một trợ lý AI giáo dục thông minh. Nhiệm vụ của bạn là tạo ra một bộ câu hỏi kiểm tra chất lượng cao dựa trên tài liệu được cung cấp.
 
-LƯU Ý QUAN TRỌNG:
-1. KHÔNG tự tạo câu hỏi mới. Chỉ lấy những câu hỏi thực sự xuất hiện trong văn bản.
-2. Xác định đúng loại câu hỏi:
-   - 'multiple-choice': Câu hỏi có các phương án lựa chọn.
-   - 'true-false': Câu hỏi yêu cầu xác định đúng/sai. PHẢI dùng chuỗi 'true-false', KHÔNG dùng 'true/false'.
-   - 'short-answer': Các câu hỏi tự luận, điền vào chỗ trống.
-3. Nếu tài liệu có đáp án đi kèm, hãy trích xuất nó. Nếu không có, hãy tự tìm đáp án đúng dựa vào kiến thức trong văn bản.
-4. Nếu tài liệu là mã nhị phân hoặc không thể đọc được, hãy trả về mảng 'questions' rỗng [].
+HƯỚNG DẪN CỤ THỂ:
+1. ƯU TIÊN TRÍCH XUẤT: Nếu tài liệu có sẵn các câu hỏi hoặc bài tập, hãy trích xuất chúng chính xác.
+2. TỰ SOẠN THẢO: Nếu tài liệu là một đoạn văn bản kiến thức và KHÔNG có sẵn câu hỏi, hãy tự soạn 5-10 câu hỏi bao quát các nội dung quan trọng nhất.
+3. ĐỊNH DẠNG BẮT BUỘC:
+   - 'multiple-choice': Dành cho câu hỏi trắc nghiệm.
+   - 'true-false': Dành cho câu hỏi Đúng/Sai. PHẢI dùng chuỗi 'true-false' có dấu gạch nối, KHÔNG dùng 'true/false'.
+   - 'short-answer': Dành cho câu hỏi tự luận ngắn hoặc điền khuyết.
+4. NGÔN NGỮ: Sử dụng ngôn ngữ của tài liệu nguồn (ưu tiên Tiếng Việt).
 
-Văn bản tài liệu:
+Nội dung tài liệu:
 {{{documentContent}}}`, 
 });
 
@@ -75,8 +81,8 @@ const generateQuizFromDocumentFlow = ai.defineFlow(
   },
   async (input) => {
     const {output} = await generateQuizPrompt(input);
-    if (!output) {
-      throw new Error('Không thể trích xuất câu hỏi từ tài liệu.');
+    if (!output || output.questions.length === 0) {
+      throw new Error('Không thể tạo câu hỏi từ nội dung này. Vui lòng kiểm tra lại định dạng file.');
     }
     return output;
   }

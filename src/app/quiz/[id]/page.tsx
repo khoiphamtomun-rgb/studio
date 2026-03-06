@@ -3,12 +3,11 @@
 
 import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, XCircle, ArrowRight, ArrowLeft, Loader2, BrainCircuit, Sparkles, Home, AlertCircle, Info, Table as TableIcon } from "lucide-react";
+import { CheckCircle2, XCircle, ArrowRight, ArrowLeft, Loader2, BrainCircuit, Home, AlertCircle, Info, ClipboardList } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from "@/components/ui/card";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 import { storage } from "@/lib/storage";
 import { Quiz, UserAnswer, QuizResult } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
@@ -79,7 +78,6 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
     if (submittedAnswers[currentIdx]) return;
     setUserAnswers(prev => ({ ...prev, [currentIdx]: val }));
     
-    // Nếu là câu hỏi bóc tách không có đáp án (*), cho phép đi tiếp luôn sau khi chọn
     if (currentQuestion.isAnswerGuessed) {
       setSubmittedAnswers(prev => ({ ...prev, [currentIdx]: true }));
     }
@@ -123,14 +121,19 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
     setIsFinished(true);
   };
 
+  const getOptionLetter = (index: number) => String.fromCharCode(65 + index);
+
   if (isFinished) {
     const results = quiz.questions.map((q, i) => ({
       question: q.question,
       userAnswer: userAnswers[i],
       correctAnswer: q.correctAnswer,
       isAnswerGuessed: q.isAnswerGuessed,
-      isCorrect: userAnswers[i] === q.correctAnswer
+      isCorrect: userAnswers[i] === q.correctAnswer,
+      options: (q as any).options || []
     }));
+
+    const isSelfCheckQuiz = results.some(r => r.isAnswerGuessed);
 
     return (
       <div className="min-h-screen bg-background">
@@ -140,23 +143,38 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
             <CardHeader className="bg-primary text-white text-center py-10 space-y-2">
               <CardTitle className="text-3xl font-headline">Hoàn thành bài tập!</CardTitle>
               <CardDescription className="text-primary-foreground/80">
-                Hãy đối chiếu các lựa chọn của bạn dưới đây
+                {isSelfCheckQuiz ? "Hãy đối soát các đáp án bạn đã chọn bên dưới" : "Xem lại kết quả bài làm của bạn"}
               </CardDescription>
             </CardHeader>
             <CardContent className="p-6 sm:p-10 space-y-10 bg-white">
-              <section className="space-y-4">
+              <section className="space-y-6">
                 <h3 className="font-headline font-bold text-xl flex items-center gap-2">
-                  <TableIcon className="h-5 w-5 text-primary" />
+                  <ClipboardList className="h-5 w-5 text-primary" />
                   Bảng đối chiếu đáp án
                 </h3>
-                <div className="border rounded-xl overflow-hidden">
+                
+                {/* Answer Key Style (1. A, 2. B...) */}
+                <div className="bg-muted/30 p-8 rounded-2xl border-2 border-dashed border-muted grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-6">
+                  {results.map((res, i) => {
+                    const optionIndex = res.options.indexOf(String(res.userAnswer));
+                    const letter = optionIndex !== -1 ? getOptionLetter(optionIndex) : "-";
+                    return (
+                      <div key={i} className="flex items-baseline gap-2">
+                        <span className="text-muted-foreground font-mono font-medium">{i + 1}.</span>
+                        <span className="text-2xl font-headline font-extrabold text-primary">{letter}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="border rounded-xl overflow-hidden mt-8">
                   <Table>
                     <TableHeader className="bg-muted/50">
                       <TableRow>
                         <TableHead className="w-12 text-center">Câu</TableHead>
                         <TableHead>Câu hỏi</TableHead>
                         <TableHead>Bạn đã chọn</TableHead>
-                        <TableHead>Trạng thái</TableHead>
+                        {!isSelfCheckQuiz && <TableHead>Trạng thái</TableHead>}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -164,22 +182,24 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                         <TableRow key={i}>
                           <TableCell className="text-center font-bold">{i + 1}</TableCell>
                           <TableCell className="max-w-[300px] truncate">{res.question}</TableCell>
-                          <TableCell className="font-medium text-primary">{String(res.userAnswer || "Chưa chọn")}</TableCell>
-                          <TableCell>
-                            {res.isAnswerGuessed ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-orange-100 text-orange-700 text-xs font-bold">
-                                <Info className="h-3 w-3" /> Tự đối chiếu
-                              </span>
-                            ) : res.isCorrect ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs font-bold">
-                                <CheckCircle2 className="h-3 w-3" /> Chính xác
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-red-100 text-red-700 text-xs font-bold">
-                                <XCircle className="h-3 w-3" /> Sai
-                              </span>
-                            )}
+                          <TableCell className="font-medium text-primary">
+                            {res.options.indexOf(String(res.userAnswer)) !== -1 
+                              ? `${getOptionLetter(res.options.indexOf(String(res.userAnswer)))}. ${res.userAnswer}`
+                              : String(res.userAnswer || "Chưa chọn")}
                           </TableCell>
+                          {!isSelfCheckQuiz && (
+                            <TableCell>
+                              {res.isCorrect ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs font-bold">
+                                  <CheckCircle2 className="h-3 w-3" /> Chính xác
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-red-100 text-red-700 text-xs font-bold">
+                                  <XCircle className="h-3 w-3" /> Sai
+                                </span>
+                              )}
+                            </TableCell>
+                          )}
                         </TableRow>
                       ))}
                     </TableBody>
@@ -203,7 +223,6 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
   }
 
   const isChecked = !!submittedAnswers[currentIdx];
-  const isCorrect = userAnswers[currentIdx] === currentQuestion.correctAnswer;
   const isSelfCheck = !!currentQuestion.isAnswerGuessed;
 
   return (
@@ -257,10 +276,10 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                           className={`flex items-center gap-4 p-5 rounded-xl border-2 transition-all cursor-pointer hover:bg-muted/50 ${borderColor}`}
                         >
                           <RadioGroupItem value={option} className="sr-only" />
-                          <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                            isSelected ? 'border-primary' : 'border-muted-foreground/30'
+                          <div className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center shrink-0 font-bold ${
+                            isSelected ? 'bg-primary border-primary text-white' : 'border-muted-foreground/30 text-muted-foreground'
                           }`}>
-                            {isSelected && <div className="w-3 h-3 rounded-full bg-primary" />}
+                            {getOptionLetter(i)}
                           </div>
                           <span className="text-lg font-medium">{option}</span>
                           {isChecked && !isSelfCheck && option === currentQuestion.correctAnswer && <CheckCircle2 className="ml-auto text-green-500 h-5 w-5" />}
@@ -270,8 +289,6 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                     })}
                   </RadioGroup>
                 )}
-
-                {/* Các loại câu hỏi khác giữ nguyên logic */}
               </CardContent>
 
               <CardFooter className="p-8 sm:p-12 border-t bg-muted/10 flex justify-between items-center">
@@ -322,7 +339,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
               <div className="p-4 bg-orange-50 border border-orange-100 rounded-xl flex gap-3 animate-fade-in">
                 <Info className="h-5 w-5 text-orange-500 shrink-0" />
                 <p className="text-sm text-orange-800">
-                  Câu hỏi này không có đáp án sẵn trong tài liệu. Bạn hãy cứ làm tiếp, hệ thống sẽ tổng hợp lại các lựa chọn của bạn ở bảng cuối bài để bạn tự đối soát.
+                  Câu hỏi này được thiết lập ở chế độ tự đối soát. Hãy làm hết bài để xem bảng tổng hợp đáp án cuối cùng.
                 </p>
               </div>
             )}

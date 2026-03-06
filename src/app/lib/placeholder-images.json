@@ -1,0 +1,17 @@
+
+{
+  "placeholderImages": [
+    {
+      "id": "hero-quiz",
+      "description": "Smart AI analyzing documents for quiz generation",
+      "imageUrl": "https://picsum.photos/seed/smartassess1/1200/800",
+      "imageHint": "artificial intelligence education"
+    },
+    {
+      "id": "dashboard-empty",
+      "description": "Empty state illustration for dashboard",
+      "imageUrl": "https://picsum.photos/seed/smartassess2/600/400",
+      "imageHint": "empty document"
+    }
+  ]
+}

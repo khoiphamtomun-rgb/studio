@@ -3,28 +3,31 @@ import { Quiz, QuizQuestion } from "./types";
 
 /**
  * Bộ bóc tách văn bản hiệu suất cao với khả năng trích xuất Cloze Tests và Multiple Choice.
+ * Tự động tìm kiếm bảng đáp án (Answer Key) trong toàn bộ văn bản.
  */
 export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz, 'id' | 'createdAt'> {
   const questions: QuizQuestion[] = [];
   
-  // 1. Tìm bảng đáp án (Answer Key)
+  // 1. Tìm bảng đáp án (Answer Key) trong toàn bộ văn bản
+  // Hỗ trợ các định dạng: 1-a, 1.A, 1: word, (1) answer...
   const answerKeyMap: Record<number, string> = {};
-  const answerKeyRegex = /(\d+)\s*[-.)\s:]\s*([a-zA-Z0-9]+)(?![a-zA-Z0-9])/g;
+  const answerKeyRegex = /(?:^|[\s,;])(\d+)\s*[-.)\s:]\s*([a-zA-Z0-9]{1,20})(?![a-zA-Z0-9])/g;
   let match;
   while ((match = answerKeyRegex.exec(text)) !== null) {
     const num = parseInt(match[1]);
     const val = match[2].toLowerCase();
+    // Ưu tiên các đáp án tìm thấy sau cùng hoặc ghi đè nếu cần
     answerKeyMap[num] = val;
   }
 
-  // 2. Chia khối văn bản
+  // 2. Chia khối văn bản theo đoạn
   const blocks = text.split(/\n\s*\n/).filter(b => b.trim().length > 0);
   let questionCounter = 0;
 
   for (let block of blocks) {
     block = block.trim();
 
-    // KIỂM TRA ĐỊNH DẠNG CLOZE TEST (Điền từ vào chỗ trống)
+    // KIỂM TRA ĐỊNH DẠNG CLOZE TEST (Điền từ vào đoạn văn)
     // Tìm các mẫu: (1) ......... hoặc (1) [blank] hoặc (1) AS
     const clozePattern = /\((\d+)\)\s*([._]{3,}|\[.*?\]|[A-Z]{2,})/g;
     const clozeMatches = Array.from(block.matchAll(clozePattern));
@@ -37,7 +40,7 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
         const index = parseInt(m[1]);
         const alreadyFilled = m[2].match(/^[A-Z]{2,}$/) ? m[2] : null;
         
-        // Nếu là ví dụ đã điền (như câu 0) thì giữ nguyên, không tạo blank
+        // Nếu là ví dụ đã điền (như câu 0) thì giữ nguyên nội dung, không tạo blank
         if (alreadyFilled && index === 0) return;
 
         const keyAnswer = answerKeyMap[index] || "";
@@ -46,7 +49,7 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
           correctAnswer: keyAnswer
         });
 
-        // Thay thế pattern bằng placeholder đặc biệt để render input
+        // Thay thế pattern bằng placeholder đặc biệt để render input trên UI
         processedPassage = processedPassage.replace(m[0], `[[BLANK_${index}]]`);
       });
 
@@ -55,7 +58,7 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
           type: 'cloze',
           question: processedPassage,
           blanks: blanks.sort((a, b) => a.index - b.index),
-          explanation: "Bài tập điền từ vào đoạn văn.",
+          explanation: "Bài tập điền từ vào đoạn văn dựa trên ngữ cảnh.",
           isAnswerGuessed: blanks.some(b => !b.correctAnswer)
         });
         continue;
@@ -63,7 +66,7 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
     }
 
     // KIỂM TRA ĐỊNH DẠNG MULTIPLE CHOICE (Trắc nghiệm)
-    // Cải tiến bóc tách: (Câu hỏi phụ: a. b. c.)
+    // Trường hợp 1: Câu hỏi và đáp án nằm trong ngoặc (Ví dụ: Man/Woman...)
     const inlineMatch = block.match(/^([\s\S]+?)\s*\(([\s\S]*?([a-dA-D][.)]\s[\s\S]+))\)$/);
     if (inlineMatch) {
       const mainPart = inlineMatch[1].trim();
@@ -82,16 +85,13 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
       const optionsRaw = optionsPart.split(/[\/\n|]/);
       const options: string[] = [];
       let correctAnswer = "";
-      let isAnswerGuessed = true;
 
       optionsRaw.forEach((opt) => {
         let cleanOpt = opt.trim();
         if (!cleanOpt) return;
         const isMarked = cleanOpt.startsWith('*');
-        if (isMarked) {
-          cleanOpt = cleanOpt.substring(1).trim();
-          isAnswerGuessed = false;
-        }
+        if (isMarked) cleanOpt = cleanOpt.substring(1).trim();
+        
         cleanOpt = cleanOpt.replace(/^[a-zA-Z0-9][.)]\s*/, '').trim().replace(/\)$/, '');
         if (cleanOpt) {
           options.push(cleanOpt);
@@ -101,12 +101,12 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
 
       if (options.length >= 2) {
         questionCounter++;
-        const keyLetter = answerKeyMap[questionCounter];
-        if (keyLetter && !correctAnswer) {
-          const keyIndex = keyLetter.charCodeAt(0) - 97;
-          if (options[keyIndex]) {
-            correctAnswer = options[keyIndex];
-            isAnswerGuessed = false;
+        // Nếu chưa có correctAnswer từ dấu *, thử lấy từ answerKeyMap
+        if (!correctAnswer) {
+          const keyLetter = answerKeyMap[questionCounter];
+          if (keyLetter) {
+            const keyIndex = keyLetter.charCodeAt(0) - 97;
+            if (options[keyIndex]) correctAnswer = options[keyIndex];
           }
         }
 
@@ -116,13 +116,13 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
           options,
           correctAnswer: correctAnswer || options[0],
           explanation: "Câu hỏi trắc nghiệm bóc tách tự động.",
-          isAnswerGuessed: isAnswerGuessed && !correctAnswer
+          isAnswerGuessed: !correctAnswer
         });
         continue;
       }
     }
 
-    // ĐỊNH DẠNG CÂU HỎI THÔNG THƯỜNG (Block Format)
+    // Trường hợp 2: Câu hỏi block truyền thống (Câu hỏi dòng 1, đáp án các dòng sau)
     const lines = block.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     if (lines.length >= 2) {
       const optionStartIndex = lines.findIndex(l => /^[a-dA-D][.)]\s/.test(l));
@@ -131,15 +131,12 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
         const optionsRaw = lines.slice(optionStartIndex);
         const options: string[] = [];
         let correctAnswer = "";
-        let isAnswerGuessed = true;
 
         optionsRaw.forEach(line => {
           let cleanLine = line.trim();
           const isMarked = cleanLine.includes('*');
-          if (isMarked) {
-            cleanLine = cleanLine.replace('*', '').trim();
-            isAnswerGuessed = false;
-          }
+          if (isMarked) cleanLine = cleanLine.replace('*', '').trim();
+          
           const optText = cleanLine.replace(/^[a-zA-Z0-9][.)]\s*/, '').trim();
           if (optText) {
             options.push(optText);
@@ -149,12 +146,11 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
 
         if (options.length >= 2) {
           questionCounter++;
-          const keyLetter = answerKeyMap[questionCounter];
-          if (keyLetter && !correctAnswer) {
-            const keyIndex = keyLetter.charCodeAt(0) - 97;
-            if (options[keyIndex]) {
-              correctAnswer = options[keyIndex];
-              isAnswerGuessed = false;
+          if (!correctAnswer) {
+            const keyLetter = answerKeyMap[questionCounter];
+            if (keyLetter) {
+              const keyIndex = keyLetter.charCodeAt(0) - 97;
+              if (options[keyIndex]) correctAnswer = options[keyIndex];
             }
           }
 
@@ -164,7 +160,7 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
             options,
             correctAnswer: correctAnswer || options[0],
             explanation: "Câu hỏi trắc nghiệm bóc tách tự động.",
-            isAnswerGuessed: isAnswerGuessed && !correctAnswer
+            isAnswerGuessed: !correctAnswer
           });
         }
       }

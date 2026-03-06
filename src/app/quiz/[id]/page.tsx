@@ -10,7 +10,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { storage } from "@/lib/storage";
-import { Quiz, UserAnswer, QuizResult, QuizQuestion } from "@/lib/types";
+import { Quiz, QuizQuestion } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { Navbar } from "@/components/navbar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -32,7 +32,6 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [userAnswers, setUserAnswers] = useState<Record<number, any>>({});
-  const [submittedAnswers, setSubmittedAnswers] = useState<Record<number, boolean>>({});
   const [isFinished, setIsFinished] = useState(false);
   
   const [answerKeyInput, setAnswerKeyInput] = useState("");
@@ -60,6 +59,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
   const handleApplyAnswerKey = () => {
     if (!answerKeyInput.trim()) return;
 
+    // Regex thông minh để bóc tách bảng đáp án nhập tay
     const regex = /(\d+)\s*[-.)\s:]\s*([a-zA-Z0-9]+)/g;
     const keyMap: Record<number, string> = {};
     let match;
@@ -90,7 +90,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
         q.blanks.forEach(b => {
           const keyVal = keyMap[b.index];
           if (keyVal) {
-            clozeVerif[b.index] = String(userAns?.[b.index] || "").toLowerCase() === keyVal;
+            clozeVerif[b.index] = String(userAns?.[b.index] || "").toLowerCase().trim() === keyVal.trim();
             clozeKeys[b.index] = keyVal;
           }
         });
@@ -100,25 +100,35 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
 
     setVerifiedResults(verification);
     setIsKeyDialogOpen(false);
-    toast({ title: "Thành công", description: `Đã đối soát đáp án.` });
+    toast({ title: "Thành công", description: `Đã đối soát đáp án dựa trên dữ liệu bạn nhập.` });
   };
 
   const handleAskGemini = () => {
-    let prompt = "Chào Gemini, tôi vừa làm một bài tập và có một số câu sai. Nhờ bạn giải thích chi tiết nhé.\n\n";
+    let prompt = "Chào Gemini, tôi vừa làm một bài tập và có một số câu sai. Nhờ bạn giải thích chi tiết tại sao đáp án của tôi chưa đúng và cung cấp kiến thức liên quan nhé.\n\n";
     
     quiz.questions.forEach((q, i) => {
       const verif = verifiedResults?.[i];
-      const isCorrect = verif ? (verif.isCorrect ?? Object.values(verif.clozeVerif || {}).every(v => v)) : (userAnswers[i] === q.correctAnswer);
+      let isCorrect = false;
+      let correctAns = "";
+
+      if (q.type === 'multiple-choice') {
+        isCorrect = verif ? verif.isCorrect : (userAnswers[i] === q.correctAnswer);
+        correctAns = verif?.keyAnswer || q.correctAnswer;
+      } else if (q.type === 'cloze') {
+        const v = verif ? Object.values(verif.clozeVerif).every(val => val) : false;
+        isCorrect = v;
+        correctAns = verif ? JSON.stringify(verif.clozeKeys) : JSON.stringify(q.blanks.map(b => `(${b.index}): ${b.correctAnswer}`));
+      }
       
       if (!isCorrect) {
-        prompt += `Câu ${i + 1}: ${q.question}\n`;
+        prompt += `Câu ${i + 1}: ${q.type === 'cloze' ? "Bài điền từ vào đoạn văn" : q.question}\n`;
         prompt += `- Tôi chọn: ${JSON.stringify(userAnswers[i])}\n`;
-        prompt += `- Đáp án đúng: ${JSON.stringify(verif?.keyAnswer || q.correctAnswer)}\n\n`;
+        prompt += `- Đáp án đúng: ${correctAns}\n\n`;
       }
     });
 
     navigator.clipboard.writeText(prompt).then(() => {
-      toast({ title: "Đã sao chép Prompt!", description: "Dán vào Gemini để hỏi nhé." });
+      toast({ title: "Đã sao chép Prompt!", description: "Dán vào Gemini để nhận lời giải nhé." });
       window.open("https://gemini.google.com/app", "_blank");
     });
   };
@@ -130,12 +140,8 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
     if (currentIdx < quiz.questions.length - 1) {
       setCurrentIdx(currentIdx + 1);
     } else {
-      handleFinish();
+      setIsFinished(true);
     }
-  };
-
-  const handleFinish = () => {
-    setIsFinished(true);
   };
 
   const getOptionLetter = (index: number) => String.fromCharCode(65 + index);
@@ -165,16 +171,16 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
       const parts = q.question.split(/(\[\[BLANK_\d+\]\])/g);
       return (
         <div className="text-lg leading-relaxed mt-6 space-y-4">
-          <div className="bg-card p-6 rounded-2xl border-2 border-dashed">
+          <div className="bg-card p-6 sm:p-10 rounded-2xl border-2 border-dashed shadow-inner">
             {parts.map((part, i) => {
               const match = part.match(/\[\[BLANK_(\d+)\]\]/);
               if (match) {
                 const blankIndex = parseInt(match[1]);
                 return (
                   <span key={i} className="inline-block mx-1">
-                    <span className="text-xs font-bold text-primary mr-1">({blankIndex})</span>
+                    <span className="text-[10px] font-bold text-primary mr-0.5 align-top">({blankIndex})</span>
                     <Input 
-                      className="w-24 h-8 inline-block text-center font-bold text-primary border-b-2 border-t-0 border-x-0 rounded-none focus-visible:ring-0 px-1"
+                      className="w-28 h-8 inline-block text-center font-bold text-primary border-b-2 border-t-0 border-x-0 rounded-none focus-visible:ring-0 px-1 bg-transparent hover:bg-primary/5 transition-colors"
                       placeholder="..."
                       value={userAnswers[idx]?.[blankIndex] || ""}
                       onChange={(e) => {
@@ -203,9 +209,14 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
       const verif = verifiedResults?.[i];
       let isCorrect = false;
       if (q.type === 'multiple-choice') {
-        isCorrect = verif ? verif.isCorrect : userAnswers[i] === q.correctAnswer;
+        isCorrect = verif ? verif.isCorrect : (userAnswers[i] === q.correctAnswer);
       } else if (q.type === 'cloze') {
-        isCorrect = verif ? Object.values(verif.clozeVerif).every(v => v) : false;
+        // Tự động chấm điểm Cloze dựa trên blanks có sẵn trong quiz object
+        const userCloze = userAnswers[i] || {};
+        const isAllBlanksCorrect = q.blanks.every(b => 
+          String(userCloze[b.index] || "").toLowerCase().trim() === String(b.correctAnswer || "").toLowerCase().trim()
+        );
+        isCorrect = verif ? Object.values(verif.clozeVerif).every(v => v) : isAllBlanksCorrect;
       }
       return { q, isCorrect, verif };
     });
@@ -217,45 +228,75 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
         <Navbar />
         <main className="container mx-auto px-4 py-12 max-w-4xl">
           <Card className="animate-fade-in border-2 border-primary/20 overflow-hidden shadow-2xl">
-            <CardHeader className="bg-primary text-white text-center py-10">
-              <CardTitle className="text-3xl font-headline mb-4">Kết quả</CardTitle>
-              <div className="text-5xl font-extrabold">{correctCount} / {quiz.questions.length}</div>
+            <CardHeader className="bg-primary text-white text-center py-12">
+              <CardTitle className="text-3xl font-headline mb-4 uppercase tracking-widest">Hoàn thành bài tập</CardTitle>
+              <div className="text-6xl font-extrabold">{correctCount} / {quiz.questions.length}</div>
+              <p className="mt-4 opacity-80 font-medium">Bạn đã hoàn thành tốt bài tập này!</p>
             </CardHeader>
 
-            <CardContent className="p-8 space-y-8">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xl font-bold flex items-center gap-2"><ClipboardList className="h-5 w-5" /> Chi tiết bài làm</h3>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => setIsKeyDialogOpen(true)}>Nhập đáp án bổ sung</Button>
-                  <Button variant="secondary" size="sm" onClick={handleAskGemini} className="bg-purple-50 text-purple-700"><Sparkles className="h-4 w-4 mr-2" /> Hỏi Gemini</Button>
+            <CardContent className="p-8 space-y-10">
+              <div className="space-y-4">
+                <h3 className="text-lg font-bold text-muted-foreground uppercase tracking-wider">Bảng đối chiếu nhanh</h3>
+                <div className="flex flex-wrap gap-2">
+                  {results.map((res, i) => (
+                    <div 
+                      key={i} 
+                      className={`w-12 h-12 rounded-lg flex flex-col items-center justify-center border-2 transition-colors ${res.isCorrect ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}
+                    >
+                      <span className="text-[10px] font-bold opacity-60">{i + 1}</span>
+                      <span className="font-bold uppercase">
+                        {res.q.type === 'multiple-choice' ? 
+                          getOptionLetter(res.q.options.indexOf(userAnswers[i] || "")) : 
+                          "..."
+                        }
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
 
-              <div className="border rounded-xl overflow-hidden">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-bold flex items-center gap-2"><ClipboardList className="h-5 w-5" /> Chi tiết từng câu</h3>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setIsKeyDialogOpen(true)}>
+                    <Upload className="h-4 w-4 mr-2" /> Nhập đáp án
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={handleAskGemini} className="bg-purple-600 text-white hover:bg-purple-700 transition-all shadow-lg shadow-purple-200">
+                    <Sparkles className="h-4 w-4 mr-2" /> Hỏi Gemini
+                  </Button>
+                </div>
+              </div>
+
+              <div className="border rounded-2xl overflow-hidden bg-muted/20">
                 <Table>
-                  <TableHeader>
+                  <TableHeader className="bg-muted/50">
                     <TableRow>
-                      <TableHead className="w-12">Câu</TableHead>
-                      <TableHead>Nội dung</TableHead>
-                      <TableHead>Bạn đã chọn</TableHead>
-                      <TableHead>Kết quả</TableHead>
+                      <TableHead className="w-12 text-center">Câu</TableHead>
+                      <TableHead>Nội dung câu hỏi</TableHead>
+                      <TableHead className="text-center">Kết quả</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {results.map((res, i) => (
-                      <TableRow key={i}>
-                        <TableCell className="font-bold">{i + 1}</TableCell>
-                        <TableCell className="max-w-[300px] truncate">{res.q.question.substring(0, 100)}...</TableCell>
-                        <TableCell>
-                          {res.q.type === 'cloze' ? 
-                            Object.entries(userAnswers[i] || {}).map(([k, v]) => `(${k}): ${v}`).join(', ') : 
-                            String(userAnswers[i] || "-")
-                          }
+                      <TableRow key={i} className="hover:bg-primary/5 transition-colors">
+                        <TableCell className="font-bold text-center">{i + 1}</TableCell>
+                        <TableCell className="max-w-[400px]">
+                          <p className="font-medium line-clamp-2">{res.q.type === 'cloze' ? "Bài tập điền từ vào đoạn văn" : res.q.question}</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Chọn: {res.q.type === 'cloze' ? 
+                              Object.entries(userAnswers[i] || {}).map(([k, v]) => `(${k}): ${v}`).join(', ') || "Chưa điền" : 
+                              String(userAnswers[i] || "Bỏ trống")
+                            }
+                          </p>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="text-center">
                           {res.isCorrect ? 
-                            <span className="text-green-600 font-bold flex items-center gap-1"><CheckCircle2 className="h-4 w-4" /> Đúng</span> : 
-                            <span className="text-red-600 font-bold flex items-center gap-1"><XCircle className="h-4 w-4" /> Sai</span>
+                            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold">
+                              <CheckCircle2 className="h-3.5 w-3.5" /> ĐÚNG
+                            </div> : 
+                            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold">
+                              <XCircle className="h-3.5 w-3.5" /> SAI
+                            </div>
                           }
                         </TableCell>
                       </TableRow>
@@ -264,27 +305,31 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                 </Table>
               </div>
             </CardContent>
-            <CardFooter className="p-8 flex gap-4">
-              <Button className="flex-1" onClick={() => router.push('/dashboard')}><Home className="mr-2 h-4 w-4" /> Về Dashboard</Button>
-              <Button variant="outline" className="flex-1" onClick={() => window.location.reload()}>Làm lại</Button>
+            <CardFooter className="p-8 bg-muted/10 flex gap-4">
+              <Button className="flex-1 h-12 font-bold" onClick={() => router.push('/dashboard')}>
+                <Home className="mr-2 h-4 w-4" /> Bảng điều khiển
+              </Button>
+              <Button variant="outline" className="flex-1 h-12 font-bold" onClick={() => window.location.reload()}>
+                Làm lại bài này
+              </Button>
             </CardFooter>
           </Card>
         </main>
 
         <Dialog open={isKeyDialogOpen} onOpenChange={setIsKeyDialogOpen}>
-          <DialogContent>
+          <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Nhập bảng đáp án</DialogTitle>
-              <DialogDescription>Dán chuỗi đáp án (Ví dụ: 1-a, 2-b, 3-word...)</DialogDescription>
+              <DialogTitle className="text-2xl">Nhập bảng đáp án đối soát</DialogTitle>
+              <DialogDescription>Dán chuỗi đáp án của bạn (Ví dụ: 1-a, 2-b, 3-word...). Hệ thống sẽ tự động cập nhật lại điểm số.</DialogDescription>
             </DialogHeader>
             <Textarea 
-              placeholder="1-a, 2-b, 3-as..." 
-              className="min-h-[150px] font-mono"
+              placeholder="1-a, 2-b, 3-example..." 
+              className="min-h-[200px] font-mono text-sm bg-muted/30 border-none focus-visible:ring-primary"
               value={answerKeyInput}
               onChange={(e) => setAnswerKeyInput(e.target.value)}
             />
             <DialogFooter>
-              <Button onClick={handleApplyAnswerKey} className="w-full">Đối soát tự động</Button>
+              <Button onClick={handleApplyAnswerKey} className="w-full h-12 font-bold shadow-lg shadow-primary/20">Bắt đầu đối soát</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -295,30 +340,33 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <Navbar />
-      <div className="w-full bg-muted h-1.5"><div className="bg-primary h-full transition-all" style={{ width: `${progress}%` }} /></div>
-      <main className="container mx-auto px-4 py-8 max-w-4xl flex-grow">
-        <div className="flex items-center justify-between mb-8">
-          <span className="text-sm font-bold text-primary uppercase tracking-widest">Câu {currentIdx + 1} / {quiz.questions.length}</span>
-          <div className="flex items-center gap-2">
-            {currentQuestion.type === 'cloze' ? <FileText className="h-4 w-4 text-primary" /> : <BrainCircuit className="h-4 w-4 text-primary" />}
-            <span className="text-xs font-bold uppercase">{currentQuestion.type}</span>
+      <div className="w-full bg-muted h-2"><div className="bg-primary h-full transition-all duration-500 ease-out" style={{ width: `${progress}%` }} /></div>
+      <main className="container mx-auto px-4 py-10 max-w-4xl flex-grow animate-fade-in">
+        <div className="flex items-center justify-between mb-10">
+          <div className="space-y-1">
+            <span className="text-xs font-bold text-primary uppercase tracking-widest bg-primary/10 px-3 py-1 rounded-full">Câu hỏi {currentIdx + 1} / {quiz.questions.length}</span>
+            <h3 className="text-sm font-medium text-muted-foreground mt-2">{quiz.quizTitle}</h3>
+          </div>
+          <div className="flex items-center gap-3 bg-muted/50 px-4 py-2 rounded-xl border">
+            {currentQuestion.type === 'cloze' ? <FileText className="h-5 w-5 text-primary" /> : <BrainCircuit className="h-5 w-5 text-primary" />}
+            <span className="text-xs font-bold uppercase tracking-tighter">{currentQuestion.type === 'cloze' ? "Điền từ vào đoạn văn" : "Câu hỏi trắc nghiệm"}</span>
           </div>
         </div>
 
-        <Card className="shadow-2xl border-none overflow-hidden">
-          <CardContent className="p-8 sm:p-12">
-            <h2 className="text-2xl sm:text-3xl font-headline font-bold leading-tight">
-              {currentQuestion.type === 'cloze' ? "Điền vào chỗ trống trong đoạn văn sau:" : currentQuestion.question}
+        <Card className="shadow-[0_20px_50px_rgba(0,0,0,0.1)] border-none overflow-hidden bg-card/60 backdrop-blur-sm">
+          <CardContent className="p-8 sm:p-14">
+            <h2 className="text-2xl sm:text-4xl font-headline font-bold leading-tight mb-8">
+              {currentQuestion.type === 'cloze' ? "Hãy hoàn thành các ô trống trong đoạn văn sau:" : currentQuestion.question}
             </h2>
             {renderQuestionContent(currentQuestion, currentIdx)}
           </CardContent>
 
-          <CardFooter className="p-8 border-t bg-muted/10 flex justify-between">
-            <Button variant="ghost" onClick={() => setCurrentIdx(prev => Math.max(0, prev - 1))} disabled={currentIdx === 0}>
-              <ArrowLeft className="mr-2 h-4 w-4" /> Trước
+          <CardFooter className="p-8 border-t bg-muted/10 flex justify-between items-center">
+            <Button variant="ghost" onClick={() => setCurrentIdx(prev => Math.max(0, prev - 1))} disabled={currentIdx === 0} className="h-12 px-6 font-bold hover:bg-background">
+              <ArrowLeft className="mr-2 h-4 w-4" /> QUAY LẠI
             </Button>
-            <Button size="lg" className="px-10" onClick={handleNext}>
-              {currentIdx === quiz.questions.length - 1 ? "Hoàn thành" : "Tiếp theo"} <ArrowRight className="ml-2 h-4 w-4" />
+            <Button size="lg" className="h-14 px-12 font-bold shadow-xl shadow-primary/20 rounded-xl" onClick={handleNext}>
+              {currentIdx === quiz.questions.length - 1 ? "HOÀN THÀNH" : "KẾ TIẾP"} <ArrowRight className="ml-2 h-5 w-5" />
             </Button>
           </CardFooter>
         </Card>

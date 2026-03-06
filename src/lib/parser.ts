@@ -1,42 +1,75 @@
 
-import { Quiz } from "./types";
+import { Quiz, QuizQuestion } from "./types";
 
 /**
- * Bộ bóc tách văn bản hiệu suất cao với khả năng trích xuất bảng đáp án tự động.
+ * Bộ bóc tách văn bản hiệu suất cao với khả năng trích xuất Cloze Tests và Multiple Choice.
  */
 export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz, 'id' | 'createdAt'> {
-  const questions: any[] = [];
+  const questions: QuizQuestion[] = [];
   
-  // 1. Tìm kiếm và trích xuất bảng đáp án (Answer Key) trong toàn bộ văn bản
-  // Hỗ trợ các định dạng: 1-a, 2.b, 3) c, 4: d...
+  // 1. Tìm bảng đáp án (Answer Key)
   const answerKeyMap: Record<number, string> = {};
-  const answerKeyRegex = /(\d+)\s*[-.)\s:]\s*([a-dA-D])(?![a-zA-Z0-9])/g;
+  const answerKeyRegex = /(\d+)\s*[-.)\s:]\s*([a-zA-Z0-9]+)(?![a-zA-Z0-9])/g;
   let match;
   while ((match = answerKeyRegex.exec(text)) !== null) {
     const num = parseInt(match[1]);
-    const letter = match[2].toLowerCase();
-    answerKeyMap[num] = letter;
+    const val = match[2].toLowerCase();
+    answerKeyMap[num] = val;
   }
 
-  // 2. Chia nhỏ văn bản thành các khối dựa trên 2 dấu xuống dòng trở lên
+  // 2. Chia khối văn bản
   const blocks = text.split(/\n\s*\n/).filter(b => b.trim().length > 0);
   let questionCounter = 0;
 
   for (let block of blocks) {
     block = block.trim();
-    
-    // Bỏ qua các khối trông giống như bảng đáp án thuần túy (đã xử lý ở bước 1)
-    if (block.length < 50 && block.match(answerKeyRegex)) continue;
 
-    let parsedQuestion: any = null;
+    // KIỂM TRA ĐỊNH DẠNG CLOZE TEST (Điền từ vào chỗ trống)
+    // Tìm các mẫu: (1) ......... hoặc (1) [blank] hoặc (1) AS
+    const clozePattern = /\((\d+)\)\s*([._]{3,}|\[.*?\]|[A-Z]{2,})/g;
+    const clozeMatches = Array.from(block.matchAll(clozePattern));
 
-    // A. Định dạng: Nội dung chính (Câu hỏi phụ: a. Lựa chọn / b. Lựa chọn)
-    const inlineMatch = block.match(/^([\s\S]+?)\s*\(([\s\S]+)\)$/);
+    if (clozeMatches.length >= 2) {
+      const blanks: { index: number; correctAnswer: string }[] = [];
+      let processedPassage = block;
+
+      clozeMatches.forEach((m) => {
+        const index = parseInt(m[1]);
+        const alreadyFilled = m[2].match(/^[A-Z]{2,}$/) ? m[2] : null;
+        
+        // Nếu là ví dụ đã điền (như câu 0) thì giữ nguyên, không tạo blank
+        if (alreadyFilled && index === 0) return;
+
+        const keyAnswer = answerKeyMap[index] || "";
+        blanks.push({
+          index,
+          correctAnswer: keyAnswer
+        });
+
+        // Thay thế pattern bằng placeholder đặc biệt để render input
+        processedPassage = processedPassage.replace(m[0], `[[BLANK_${index}]]`);
+      });
+
+      if (blanks.length > 0) {
+        questions.push({
+          type: 'cloze',
+          question: processedPassage,
+          blanks: blanks.sort((a, b) => a.index - b.index),
+          explanation: "Bài tập điền từ vào đoạn văn.",
+          isAnswerGuessed: blanks.some(b => !b.correctAnswer)
+        });
+        continue;
+      }
+    }
+
+    // KIỂM TRA ĐỊNH DẠNG MULTIPLE CHOICE (Trắc nghiệm)
+    // Cải tiến bóc tách: (Câu hỏi phụ: a. b. c.)
+    const inlineMatch = block.match(/^([\s\S]+?)\s*\(([\s\S]*?([a-dA-D][.)]\s[\s\S]+))\)$/);
     if (inlineMatch) {
       const mainPart = inlineMatch[1].trim();
       const contentInside = inlineMatch[2].trim();
-      const optionStartMatch = contentInside.match(/\b[a-dA-D][.)]\s/);
       
+      const optionStartMatch = contentInside.match(/\b[a-dA-D][.)]\s/);
       let subQuestion = "";
       let optionsPart = contentInside;
 
@@ -59,7 +92,7 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
           cleanOpt = cleanOpt.substring(1).trim();
           isAnswerGuessed = false;
         }
-        cleanOpt = cleanOpt.replace(/^[a-zA-Z0-9][.)]\s*/, '').trim();
+        cleanOpt = cleanOpt.replace(/^[a-zA-Z0-9][.)]\s*/, '').trim().replace(/\)$/, '');
         if (cleanOpt) {
           options.push(cleanOpt);
           if (isMarked) correctAnswer = cleanOpt;
@@ -68,83 +101,78 @@ export function parseFixedFormat(text: string, customTitle?: string): Omit<Quiz,
 
       if (options.length >= 2) {
         questionCounter++;
-        parsedQuestion = {
-          type: 'multiple-choice',
-          question: fullQuestion,
-          options,
-          correctAnswer,
-          isAnswerGuessed,
-          index: questionCounter
-        };
-      }
-    }
-
-    // B. Định dạng: Danh sách câu hỏi nhiều dòng (Block Format)
-    if (!parsedQuestion) {
-      const lines = block.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-      if (lines.length >= 2) {
-        const optionStartIndex = lines.findIndex(l => /^[a-dA-D][.)]\s/.test(l));
-        if (optionStartIndex !== -1) {
-          const rawQuestionText = lines.slice(0, optionStartIndex).join(' ');
-          const optionsRaw = lines.slice(optionStartIndex);
-          const options: string[] = [];
-          let correctAnswer = "";
-          let isAnswerGuessed = true;
-
-          optionsRaw.forEach(line => {
-            let cleanLine = line.trim();
-            const isMarked = cleanLine.includes('*');
-            if (isMarked) {
-              cleanLine = cleanLine.replace('*', '').trim();
-              isAnswerGuessed = false;
-            }
-            const optText = cleanLine.replace(/^[a-zA-Z0-9][.)]\s*/, '').trim();
-            if (optText) {
-              options.push(optText);
-              if (isMarked) correctAnswer = optText;
-            }
-          });
-
-          if (options.length >= 2) {
-            questionCounter++;
-            parsedQuestion = {
-              type: 'multiple-choice',
-              question: rawQuestionText.replace(/^\d+[.)]\s*/, ''),
-              options,
-              correctAnswer,
-              isAnswerGuessed,
-              index: questionCounter
-            };
+        const keyLetter = answerKeyMap[questionCounter];
+        if (keyLetter && !correctAnswer) {
+          const keyIndex = keyLetter.charCodeAt(0) - 97;
+          if (options[keyIndex]) {
+            correctAnswer = options[keyIndex];
+            isAnswerGuessed = false;
           }
         }
+
+        questions.push({
+          type: 'multiple-choice',
+          question: fullQuestion.replace(/^\d+[.)]\s*/, ''),
+          options,
+          correctAnswer: correctAnswer || options[0],
+          explanation: "Câu hỏi trắc nghiệm bóc tách tự động.",
+          isAnswerGuessed: isAnswerGuessed && !correctAnswer
+        });
+        continue;
       }
     }
 
-    // 3. Nếu bóc tách thành công, đối chiếu với Answer Key đã trích xuất ở Bước 1
-    if (parsedQuestion) {
-      const keyLetter = answerKeyMap[parsedQuestion.index];
-      if (keyLetter && !parsedQuestion.correctAnswer) {
-        const keyIndex = keyLetter.charCodeAt(0) - 97; // a -> 0
-        if (parsedQuestion.options[keyIndex]) {
-          parsedQuestion.correctAnswer = parsedQuestion.options[keyIndex];
-          parsedQuestion.isAnswerGuessed = false;
-          parsedQuestion.explanation = `Đáp án tự động trích xuất từ bảng đáp án (Câu ${parsedQuestion.index}: ${keyLetter.toUpperCase()}).`;
+    // ĐỊNH DẠNG CÂU HỎI THÔNG THƯỜNG (Block Format)
+    const lines = block.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length >= 2) {
+      const optionStartIndex = lines.findIndex(l => /^[a-dA-D][.)]\s/.test(l));
+      if (optionStartIndex !== -1) {
+        const rawQuestionText = lines.slice(0, optionStartIndex).join(' ');
+        const optionsRaw = lines.slice(optionStartIndex);
+        const options: string[] = [];
+        let correctAnswer = "";
+        let isAnswerGuessed = true;
+
+        optionsRaw.forEach(line => {
+          let cleanLine = line.trim();
+          const isMarked = cleanLine.includes('*');
+          if (isMarked) {
+            cleanLine = cleanLine.replace('*', '').trim();
+            isAnswerGuessed = false;
+          }
+          const optText = cleanLine.replace(/^[a-zA-Z0-9][.)]\s*/, '').trim();
+          if (optText) {
+            options.push(optText);
+            if (isMarked) correctAnswer = optText;
+          }
+        });
+
+        if (options.length >= 2) {
+          questionCounter++;
+          const keyLetter = answerKeyMap[questionCounter];
+          if (keyLetter && !correctAnswer) {
+            const keyIndex = keyLetter.charCodeAt(0) - 97;
+            if (options[keyIndex]) {
+              correctAnswer = options[keyIndex];
+              isAnswerGuessed = false;
+            }
+          }
+
+          questions.push({
+            type: 'multiple-choice',
+            question: rawQuestionText.replace(/^\d+[.)]\s*/, ''),
+            options,
+            correctAnswer: correctAnswer || options[0],
+            explanation: "Câu hỏi trắc nghiệm bóc tách tự động.",
+            isAnswerGuessed: isAnswerGuessed && !correctAnswer
+          });
         }
       }
-
-      // Nếu vẫn không có đáp án, mặc định chọn câu đầu và đánh dấu "Tự đối chiếu"
-      if (!parsedQuestion.correctAnswer) {
-        parsedQuestion.correctAnswer = parsedQuestion.options[0];
-        parsedQuestion.isAnswerGuessed = true;
-        parsedQuestion.explanation = "Câu hỏi này chưa có đáp án chính thức, vui lòng tự đối chiếu.";
-      }
-
-      questions.push(parsedQuestion);
     }
   }
 
   return {
-    quizTitle: customTitle || "Bài tập bóc tách tự động",
+    quizTitle: customTitle || "Bài tập SmartAssess",
     questions
   };
 }

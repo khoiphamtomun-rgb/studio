@@ -59,52 +59,72 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
   const handleApplyAnswerKey = () => {
     if (!answerKeyInput.trim()) return;
 
-    const regex = /(\d+)\s*[-.)\s:]\s*([a-zA-Z0-9/]+)/g;
-    const keyMap: Record<number, string> = {};
-    let match;
+    // Tách input thành các bộ đáp án riêng biệt nếu số thứ tự reset về 1
+    const lines = answerKeyInput.split('\n');
+    const keySets: Record<number, string>[] = [];
+    let currentSet: Record<number, string> = {};
+    let lastNum = -1;
     
-    while ((match = regex.exec(answerKeyInput)) !== null) {
-      const num = parseInt(match[1]);
-      const val = match[2].toLowerCase().trim();
-      keyMap[num] = val;
-    }
+    const regex = /(\d+)\s*[-.)\s:]\s*([a-zA-Z0-9/]+)/g;
+    
+    lines.forEach(line => {
+      let match;
+      while ((match = regex.exec(line)) !== null) {
+        const num = parseInt(match[1]);
+        const val = match[2].toLowerCase().trim();
+        
+        // Nếu số thứ tự reset về 1 hoặc nhỏ hơn số trước đó -> Coi là bộ đáp án mới
+        if (num <= lastNum && Object.keys(currentSet).length > 0) {
+          keySets.push(currentSet);
+          currentSet = {};
+        }
+        currentSet[num] = val;
+        lastNum = num;
+      }
+    });
+    if (Object.keys(currentSet).length > 0) keySets.push(currentSet);
 
     const verification: Record<number, any> = {};
+    let currentSetIdx = 0;
+
     quiz.questions.forEach((q, i) => {
+      // Ưu tiên lấy bộ đáp án theo thứ tự xuất hiện của bài tập
+      const activeKeySet = keySets[currentSetIdx] || {};
+
       if (q.type === 'multiple-choice') {
-        const keyVal = keyMap[i + 1];
+        const keyVal = activeKeySet[i + 1];
         if (keyVal) {
+          let correctText = keyVal;
           if (keyVal.length === 1 && /^[a-d]$/.test(keyVal)) {
             const keyIndex = keyVal.charCodeAt(0) - 97;
-            const correctText = q.options[keyIndex];
-            verification[i] = {
-              isCorrect: String(userAnswers[i] || "").toLowerCase().trim() === String(correctText || "").toLowerCase().trim(),
-              keyAnswer: correctText || `Option ${keyVal.toUpperCase()}`
-            };
-          } else {
-            verification[i] = {
-              isCorrect: String(userAnswers[i] || "").toLowerCase().trim() === keyVal,
-              keyAnswer: keyVal
-            };
+            correctText = q.options[keyIndex] || keyVal;
           }
+          verification[i] = {
+            isCorrect: String(userAnswers[i] || "").toLowerCase().trim() === correctText.toLowerCase().trim(),
+            keyAnswer: correctText
+          };
+          // Nếu đây là câu cuối của bộ (hoặc câu duy nhất), ta không tăng setIdx ở đây 
+          // vì MC thường đi lẻ, Cloze mới đi theo bộ. Nhưng để an toàn ta kiểm tra loại hình bài tập.
         }
       } else if (q.type === 'cloze') {
         const clozeVerif: Record<number, boolean> = {};
         const clozeKeys: Record<number, string> = {};
         q.blanks.forEach(b => {
-          const keyVal = keyMap[b.index];
+          const keyVal = activeKeySet[b.index];
           if (keyVal) {
             clozeVerif[b.index] = String(userAnswers[i]?.[b.index] || "").toLowerCase().trim() === keyVal;
             clozeKeys[b.index] = keyVal;
           }
         });
         verification[i] = { clozeVerif, clozeKeys };
+        // Mỗi bài Cloze được coi là một bộ đáp án hoàn chỉnh
+        currentSetIdx++;
       }
     });
 
     setVerifiedResults(verification);
     setIsKeyDialogOpen(false);
-    toast({ title: "Thành công", description: `Đã cập nhật kết quả dựa trên bảng đáp án mới.` });
+    toast({ title: "Thành công", description: `Đã cập nhật kết quả dựa trên các bộ đáp án mới.` });
   };
 
   const handleAskGemini = () => {
@@ -303,7 +323,7 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
                     >
                       <span className="text-[10px] font-bold opacity-60">{detail.index}</span>
                       <span className="font-bold uppercase text-xs truncate w-full text-center px-1">
-                        {!detail.hasKey ? "?" : (detail.type === 'mc' ? (detail.value === "Bỏ trống" ? "Ø" : getOptionLetter(quiz.questions[results.findIndex(r => r.details.includes(detail))].options.indexOf(detail.value))) : (detail.value === "..." ? "..." : detail.value))}
+                        {!detail.hasKey ? "?" : (detail.type === 'mc' ? (detail.value === "Bỏ trống" ? "Ø" : detail.value) : (detail.value === "..." ? "..." : detail.value))}
                       </span>
                     </div>
                   ))}
@@ -381,10 +401,10 @@ export default function QuizPage({ params }: { params: Promise<{ id: string }> }
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle className="text-2xl">Nhập bảng đáp án đối soát</DialogTitle>
-              <DialogDescription>Dán chuỗi đáp án của bạn (Ví dụ: 1-as, 2-with, 3-a...). Hệ thống sẽ tự động cập nhật lại điểm số.</DialogDescription>
+              <DialogDescription>Dán chuỗi đáp án của bạn. Hệ thống sẽ tự động tách thành các bộ bài tập (nếu reset về 1).</DialogDescription>
             </DialogHeader>
             <Textarea 
-              placeholder="1-as, 2-with, 3-a..." 
+              placeholder="1-as, 2-with, 3-a... (Bài tiếp theo) 1-for, 2-at..." 
               className="min-h-[200px] font-mono text-sm bg-muted/30 border-none focus-visible:ring-primary"
               value={answerKeyInput}
               onChange={(e) => setAnswerKeyInput(e.target.value)}
